@@ -1,0 +1,6 @@
+{
+  "name": "Social Share Scheduler",
+  "description": "An Android-first mobile application to create one social media post, hunt trending news topics with AI rewriting, and share across multiple platforms with scheduling.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
