@@ -315,6 +315,12 @@ export const ShareConfirmationScreen: React.FC<ShareConfirmationScreenProps> = (
     showToast('Destination marked Completed!');
   };
 
+  // 4b. Mark Failed (ONLY on explicit user click!)
+  const handleMarkFailed = (destId: string) => {
+    updateDestinationStatus(destId, 'Error', 'Manually marked failed by user');
+    showToast('Destination marked as Failed.');
+  };
+
   // 5. Skip destination
   const handleSkip = (destId: string) => {
     updateDestinationStatus(destId, 'Skipped', 'Skipped by user');
@@ -343,7 +349,8 @@ export const ShareConfirmationScreen: React.FC<ShareConfirmationScreenProps> = (
     session.destinations.forEach(d => {
       const pStatus: PostStatus = 
         d.status === 'Completed' ? 'COMPLETED' : 
-        d.status === 'Skipped' ? 'SKIPPED' : 'READY';
+        d.status === 'Skipped' ? 'SKIPPED' : 
+        d.status === 'Error' ? 'FAILED' : 'READY';
 
       updatedPlatformStatuses[d.id] = {
         status: pStatus,
@@ -406,7 +413,7 @@ export const ShareConfirmationScreen: React.FC<ShareConfirmationScreenProps> = (
         return (
           <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30 flex items-center gap-1">
             <AlertCircle className="w-3 h-3" />
-            <span>Error</span>
+            <span>Failed</span>
           </span>
         );
       case 'Ready':
@@ -746,21 +753,34 @@ export const ShareConfirmationScreen: React.FC<ShareConfirmationScreenProps> = (
             </button>
           </div>
 
-          <div className="flex items-center justify-between text-xs pt-1">
-            <button
-              type="button"
-              onClick={() => handleSkip(activeDest.id)}
-              className="text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 flex items-center gap-1 font-medium text-[11px]"
-            >
-              <SkipForward className="w-3 h-3" />
-              <span>Skip this destination</span>
-            </button>
+          <div className="flex items-center justify-between text-xs pt-1 flex-wrap gap-2">
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                id={`btn-mark-failed-${activeDest.id}`}
+                onClick={() => handleMarkFailed(activeDest.id)}
+                className="text-rose-600 dark:text-rose-400 hover:text-rose-700 flex items-center gap-1 font-semibold text-[11px]"
+              >
+                <AlertCircle className="w-3 h-3" />
+                <span>Mark Failed</span>
+              </button>
+
+              <button
+                type="button"
+                id={`btn-skip-${activeDest.id}`}
+                onClick={() => handleSkip(activeDest.id)}
+                className="text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 flex items-center gap-1 font-medium text-[11px]"
+              >
+                <SkipForward className="w-3 h-3" />
+                <span>Skip</span>
+              </button>
+            </div>
 
             {activeDest.status === 'Error' && (
               <button
                 type="button"
                 onClick={() => handleRetry(activeDest.id)}
-                className="text-rose-600 dark:text-rose-400 hover:underline flex items-center gap-1 font-semibold text-[11px]"
+                className="text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1 font-semibold text-[11px]"
               >
                 <RotateCcw className="w-3 h-3" />
                 <span>Retry</span>
@@ -899,13 +919,22 @@ export const ShareConfirmationScreen: React.FC<ShareConfirmationScreenProps> = (
                       )}
 
                       {dest.status !== 'Skipped' && dest.status !== 'Completed' && (
-                        <button
-                          type="button"
-                          onClick={() => handleSkip(dest.id)}
-                          className="px-2 py-1.5 rounded-xl text-xs font-medium text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
-                        >
-                          Skip
-                        </button>
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => handleMarkFailed(dest.id)}
+                            className="px-2 py-1.5 rounded-xl text-xs font-medium text-rose-500 hover:text-rose-700 dark:hover:text-rose-400"
+                          >
+                            Fail
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleSkip(dest.id)}
+                            className="px-2 py-1.5 rounded-xl text-xs font-medium text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+                          >
+                            Skip
+                          </button>
+                        </>
                       )}
                     </div>
                   </div>

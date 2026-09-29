@@ -38,8 +38,10 @@ import {
 } from '../utils/socialAccounts';
 import { PlatformPreview } from './PlatformPreview';
 import { PlatformContentGenerator } from './PlatformContentGenerator';
-import { isOnline } from '../services/networkState';
-import { mediaStorage } from '../services/mediaStorage';
+import { usePlanContext } from '../contexts/PlanContext';
+import { costGuard } from '../services/costGuard';
+import { apiService } from '../services/apiService';
+import { sanitizeUserFacingError } from '../utils/errorSanitizer';
 
 const DESTINATION_PLATFORMS_CONFIG: { id: PlatformId; label: string }[] = [
   { id: 'facebook_page', label: 'Facebook Pages' },
@@ -74,6 +76,7 @@ export const CreatePostScreen: React.FC<CreatePostScreenProps> = ({
   socialGroups = [],
   initialGroupId
 }) => {
+  const { canUseFeature, recordUsage, openUpgradeModal } = usePlanContext();
   const normalizedAccounts = normalizeUserAccounts(userAccounts);
   const allDestinations = getAllDestinations(normalizedAccounts);
 
@@ -344,11 +347,8 @@ export const CreatePostScreen: React.FC<CreatePostScreenProps> = ({
     }
 
     const objectUrl = URL.createObjectURL(file);
-    const mediaId = `local-${Date.now()}`;
-    // Save binary into local mediaStorage in background
-    mediaStorage.save(mediaId, file).catch(() => {});
     setMedia({
-      id: mediaId,
+      id: `local-${Date.now()}`,
       type,
       name: file.name,
       url: objectUrl,
@@ -362,31 +362,35 @@ export const CreatePostScreen: React.FC<CreatePostScreenProps> = ({
     setMedia(item);
   };
 
-  // AI Generation via Gemini API
+  // AI Generation via Gemini API with Cost Guard Protection
   const handleGenerateWithAi = async () => {
-    if (!isOnline()) {
-      setValidationWarning('Offline Mode: AI Generation requires an active internet connection.');
-      setIsGeneratingAi(false);
+    // 1. Quota Pre-flight
+    const aiCheck = canUseFeature('ai_generations');
+    if (!aiCheck.allowed) {
+      openUpgradeModal('AI Content Generator', aiCheck.reason || 'AI generation limit reached for your plan.');
+      return;
+    }
+
+    // 2. Request Lock & Rapid-Click Debounce
+    const lock = costGuard.acquireLock('ai_generations', 'create-post-ai');
+    if (!lock.acquired) {
       return;
     }
 
     setIsGeneratingAi(true);
     setValidationWarning(null);
     try {
-      const response = await fetch('/api/ai/generate-platform-content', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          topic: aiPromptTopic || title || 'Trip mancing Waduk Jangari dan wisata seru Jawa Barat',
-          mediaType: media?.type,
-          mediaName: media?.name,
-          platforms: selectedPlatforms.length > 0 ? selectedPlatforms : ['facebook_page', 'instagram', 'tiktok', 'youtube', 'twitter', 'whatsapp']
-        })
+      const resJson = await apiService.generateAI({
+        topic: aiPromptTopic || title || 'Trip mancing Waduk Jangari dan wisata seru Jawa Barat',
+        mediaType: media?.type,
+        mediaName: media?.name,
+        platforms: selectedPlatforms.length > 0 ? selectedPlatforms : ['facebook_page', 'instagram', 'tiktok', 'youtube', 'twitter', 'whatsapp']
       });
 
-      const resJson = await response.json();
       if (resJson.success && resJson.data) {
         setPlatformOverrides(resJson.data);
+        // Only count usage on real success
+        recordUsage('ai_generations');
         
         // Sync universal fields from the primary generated platform
         const pData = resJson.data;
@@ -404,10 +408,12 @@ export const CreatePostScreen: React.FC<CreatePostScreenProps> = ({
           setHashtags(primaryHashtags.slice(0, 5));
         }
         setShowAiModal(false);
+      } else {
+        throw new Error(resJson.error || 'Server error generating AI content');
       }
     } catch (err: any) {
       console.warn('AI generation fallback to offline prompt sample:', err);
-      // Fallback content directly matching prompt example
+      // Fallback content directly matching prompt example (without charging AI quota)
       setTitle('Jangari, Surga Pemancing di Jawa Barat');
       setCaption('Jangari bukan cuma tempat mancing, tapi juga menawarkan panorama dan suasana yang menarik untuk dijelajahi.');
       setDescription('Pemandangan danau air tenang dan keramba terapung yang luas di Jangari Cianjur Jawa Barat.');
@@ -415,6 +421,7 @@ export const CreatePostScreen: React.FC<CreatePostScreenProps> = ({
       setShowAiModal(false);
     } finally {
       setIsGeneratingAi(false);
+      costGuard.releaseLock('ai_generations', 'create-post-ai');
     }
   };
 
@@ -449,7 +456,8 @@ export const CreatePostScreen: React.FC<CreatePostScreenProps> = ({
     setIsDownloadingMedia(true);
     setMediaDownloadError(null);
     try {
-      const res = await fetch(`/api/news/media-proxy-download?url=${encodeURIComponent(mediaUrl)}`);
+      const proxyUrl = apiService.getMediaProxyDownloadUrl(mediaUrl, 25);
+      const res = await fetch(proxyUrl);
       if (!res.ok) {
         const errJson = await res.json().catch(() => ({}));
         throw new Error(errJson.error || `HTTP ${res.status}: Failed to download media from host`);
@@ -469,8 +477,7 @@ export const CreatePostScreen: React.FC<CreatePostScreenProps> = ({
       setMediaDownloadedSuccess(true);
       setTimeout(() => setMediaDownloadedSuccess(false), 4000);
     } catch (err: any) {
-      console.error('Media download error:', err);
-      setMediaDownloadError(err.message || 'Direct media download failed. Source host may block external downloads.');
+      setMediaDownloadError(sanitizeUserFacingError(err, 'Direct media download failed. Source host may block external downloads.'));
     } finally {
       setIsDownloadingMedia(false);
     }
@@ -501,25 +508,35 @@ export const CreatePostScreen: React.FC<CreatePostScreenProps> = ({
     setCaption(newCaption);
   };
 
-  // Regenerate News Content via Gemini Fact-based rewrite
+  // Regenerate News Content via Gemini Fact-based rewrite with Cost Guard
   const handleRegenerateNewsContent = async () => {
     if (!newsInfo) return;
+
+    // 1. Quota Pre-flight
+    const rwCheck = canUseFeature('news_rewrites');
+    if (!rwCheck.allowed) {
+      openUpgradeModal('News AI Rewrite', rwCheck.reason || 'Daily rewrite quota reached for your plan.');
+      return;
+    }
+
+    // 2. Request Lock
+    const lock = costGuard.acquireLock('news_rewrites', 'regen-news-content');
+    if (!lock.acquired) {
+      return;
+    }
+
     setIsRegeneratingNews(true);
     try {
-      const res = await fetch('/api/news/rewrite', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          title: newsInfo.articleTitle || title,
-          summary: newsInfo.summary || description,
-          url: newsInfo.articleUrl,
-          source: newsInfo.sourceName,
-          category: newsInfo.category
-        })
+      const data = await apiService.rewriteNews({
+        title: newsInfo.articleTitle || title,
+        summary: newsInfo.summary || description,
+        url: newsInfo.articleUrl,
+        source: newsInfo.sourceName,
+        category: newsInfo.category
       });
-      const data = await res.json();
       if (data.success && data.rewrite) {
         const rw = data.rewrite;
+        recordUsage('news_rewrites');
         if (rw.generatedTitles && rw.generatedTitles.length > 0) {
           setTitleOptions(rw.generatedTitles);
         }
@@ -552,9 +569,10 @@ export const CreatePostScreen: React.FC<CreatePostScreenProps> = ({
         }
       }
     } catch (err) {
-      console.error('Failed to regenerate news content:', err);
+      console.warn('Regenerate news content error:', err);
     } finally {
       setIsRegeneratingNews(false);
+      costGuard.releaseLock('news_rewrites', 'regen-news-content');
     }
   };
 
@@ -615,6 +633,15 @@ export const CreatePostScreen: React.FC<CreatePostScreenProps> = ({
 
   const handleShareClick = () => {
     if (!validatePost()) return;
+
+    if (isScheduling) {
+      const scheduleCheck = canUseFeature('scheduled_posts');
+      if (!scheduleCheck.allowed) {
+        openUpgradeModal('Scheduled Posts', scheduleCheck.reason || 'Scheduled post limit reached for your plan.');
+        return;
+      }
+    }
+
     const post = constructPostObject();
     onShareNow(post);
   };
@@ -828,19 +855,36 @@ export const CreatePostScreen: React.FC<CreatePostScreenProps> = ({
               {(media?.url || newsInfo.media?.url) && (
                 <button
                   type="button"
+                  id="btn-download-news-media"
                   disabled={isDownloadingMedia}
                   onClick={handleDownloadAndUseMedia}
-                  className="bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all shadow-xs disabled:opacity-50"
+                  className={`px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all shadow-xs disabled:opacity-50 ${
+                    mediaDownloadedSuccess
+                      ? 'bg-emerald-600 text-white'
+                      : mediaDownloadError
+                      ? 'bg-rose-600 hover:bg-rose-500 text-white'
+                      : 'bg-indigo-600 hover:bg-indigo-500 text-white'
+                  }`}
                 >
                   {isDownloadingMedia ? (
                     <>
                       <RefreshCw className="w-3.5 h-3.5 animate-spin" />
                       <span>Downloading Media...</span>
                     </>
+                  ) : mediaDownloadedSuccess ? (
+                    <>
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      <span>Downloaded ✓</span>
+                    </>
+                  ) : mediaDownloadError ? (
+                    <>
+                      <AlertCircle className="w-3.5 h-3.5" />
+                      <span>Browser download unavailable</span>
+                    </>
                   ) : (
                     <>
                       <Download className="w-3.5 h-3.5" />
-                      <span>Download & Use Media</span>
+                      <span>Download & Use Media (Available)</span>
                     </>
                   )}
                 </button>
@@ -1114,12 +1158,7 @@ export const CreatePostScreen: React.FC<CreatePostScreenProps> = ({
               <Sparkles className="w-5 h-5" />
             </div>
             <div>
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs font-bold text-slate-900 dark:text-white">AI Content Assistant</span>
-                <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
-                  ONLINE REQUIRED
-                </span>
-              </div>
+              <div className="text-xs font-bold text-slate-900 dark:text-white">AI Content Assistant</div>
               <div className="text-[11px] text-slate-500 dark:text-slate-400">
                 Generate catchy title, caption, hashtags (max 5), & CTA
               </div>

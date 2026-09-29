@@ -3,6 +3,7 @@
  */
 
 import { logger } from './logger';
+import { redactSecretsFromString, sanitizeDiagnosticDetails, sanitizeUserFacingError } from '../utils/errorSanitizer';
 
 export interface AppError {
   code: string;
@@ -27,14 +28,18 @@ export const errorReporter = {
     recoverable = true,
     details?: any
   ): AppError {
+    const safeInternal = redactSecretsFromString(internalMessage || 'Unknown error');
+    const safeUserFacing = sanitizeUserFacingError(userFacingMessage || internalMessage);
+    const safeDetails = sanitizeDiagnosticDetails(details);
+
     const errorObj: AppError = {
       code,
-      message: internalMessage,
-      userFacingMessage,
+      message: safeInternal,
+      userFacingMessage: safeUserFacing,
       feature,
       timestamp: new Date().toISOString(),
       recoverable,
-      details
+      details: safeDetails
     };
 
     errorLogBuffer.unshift(errorObj);
@@ -42,7 +47,7 @@ export const errorReporter = {
       errorLogBuffer.pop();
     }
 
-    logger.error(`[${feature}] ${code}: ${internalMessage}`, details);
+    logger.error(`[${feature}] ${code}: ${safeInternal}`, safeDetails);
     return errorObj;
   },
 

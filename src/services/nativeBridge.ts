@@ -35,6 +35,17 @@ export interface ScheduledNotificationOptions {
   data?: Record<string, any>;
 }
 
+export interface NativePlayBillingPurchase {
+  productId: string;
+  purchaseToken: string;
+  orderId?: string;
+  packageName: string;
+  purchaseTime?: number;
+  purchaseState: 'PURCHASED' | 'PENDING' | 'UNSPECIFIED';
+  isAcknowledged?: boolean;
+  autoRenewing?: boolean;
+}
+
 declare global {
   interface Window {
     // Injected Android bridge placeholder for future native builds (Capacitor / React Native / WebView)
@@ -45,6 +56,13 @@ declare global {
       scheduleNotification?: (payloadJson: string) => void;
       cancelNotification?: (id: string) => void;
       openUrl?: (url: string, deepLink?: string) => void;
+      // Exact Android Google Play Billing native bridge integration point
+      billing?: {
+        isAvailable?: () => boolean;
+        launchBillingFlow?: (payloadJson: string) => Promise<string> | string;
+        queryPurchases?: () => Promise<string> | string;
+        openManageSubscriptions?: (packageName: string, productId?: string) => void;
+      };
     };
   }
 }

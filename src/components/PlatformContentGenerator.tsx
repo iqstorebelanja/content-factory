@@ -17,6 +17,9 @@ import { PlatformId, MediaItem, PlatformCustomContent, UserSocialAccounts } from
 import { PLATFORMS } from '../data/platforms';
 import { copyCaptionToClipboard, formatPlatformCaption } from '../utils/shareEngine';
 import { getDestinationsForPlatform, normalizeUserAccounts } from '../utils/socialAccounts';
+import { usePlanContext } from '../contexts/PlanContext';
+import { costGuard } from '../services/costGuard';
+import { apiService } from '../services/apiService';
 
 interface PlatformContentGeneratorProps {
   selectedPlatforms: PlatformId[];
@@ -61,6 +64,7 @@ export const PlatformContentGenerator: React.FC<PlatformContentGeneratorProps> =
   universalDescription,
   universalHashtags
 }) => {
+  const { canUseFeature, recordUsage, openUpgradeModal } = usePlanContext();
   const [isGeneratingAll, setIsGeneratingAll] = useState(false);
   const [regeneratingPlatform, setRegeneratingPlatform] = useState<PlatformId | null>(null);
   const [activeTab, setActiveTab] = useState<PlatformId | 'ALL_CARDS'>(() => selectedPlatforms[0] || 'ALL_CARDS');
@@ -148,24 +152,33 @@ export const PlatformContentGenerator: React.FC<PlatformContentGeneratorProps> =
     }
   };
 
-  // Generate All selected platforms
+  // Generate All selected platforms with Cost Guard Protection
   const handleGenerateAll = async () => {
     if (selectedPlatforms.length === 0) return;
+
+    // 1. Quota Pre-flight
+    const aiCheck = canUseFeature('ai_generations');
+    if (!aiCheck.allowed) {
+      openUpgradeModal('AI Content Generation', aiCheck.reason || 'AI generation limit reached for your plan.');
+      return;
+    }
+
+    // 2. Request Lock & Rapid-Click Protection
+    const lock = costGuard.acquireLock('ai_generations', 'generate-all');
+    if (!lock.acquired) {
+      return;
+    }
+
     setIsGeneratingAll(true);
 
     try {
-      const response = await fetch('/api/ai/generate-platform-content', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          topic: topic || universalTitle || universalCaption || 'Trip mancing Waduk Jangari dan wisata seru Jawa Barat',
-          mediaType: media?.type,
-          mediaName: media?.name,
-          platforms: selectedPlatforms
-        })
+      const resJson = await apiService.generateAI({
+        topic: topic || universalTitle || universalCaption || 'Trip mancing Waduk Jangari dan wisata seru Jawa Barat',
+        mediaType: media?.type,
+        mediaName: media?.name,
+        platforms: selectedPlatforms
       });
 
-      const resJson = await response.json();
       if (resJson.success && resJson.data) {
         const normalized: Partial<Record<PlatformId, PlatformCustomContent>> = {};
         for (const [k, v] of Object.entries(resJson.data as Record<string, any>)) {
@@ -176,10 +189,14 @@ export const PlatformContentGenerator: React.FC<PlatformContentGeneratorProps> =
           };
         }
         onApplyAllOverrides(normalized);
+        // Only count usage on real success
+        recordUsage('ai_generations');
+      } else {
+        throw new Error(resJson.error || 'Server error generating platform content');
       }
     } catch (err) {
       console.warn('Generate All fallback triggered:', err);
-      // Construct rich local fallbacks for selected platforms
+      // Construct rich local fallbacks for selected platforms without charging AI quota
       const localBatch: Partial<Record<PlatformId, PlatformCustomContent>> = {};
       selectedPlatforms.forEach(pId => {
         localBatch[pId] = getContentForPlatform(pId);
@@ -187,27 +204,36 @@ export const PlatformContentGenerator: React.FC<PlatformContentGeneratorProps> =
       onApplyAllOverrides(localBatch);
     } finally {
       setIsGeneratingAll(false);
+      costGuard.releaseLock('ai_generations', 'generate-all');
     }
   };
 
-  // Regenerate single platform
+  // Regenerate single platform with Cost Guard Protection
   const handleRegenerateSingle = async (platformId: PlatformId) => {
+    // 1. Quota Pre-flight
+    const aiCheck = canUseFeature('ai_generations');
+    if (!aiCheck.allowed) {
+      openUpgradeModal('AI Content Generation', aiCheck.reason || 'AI generation limit reached for your plan.');
+      return;
+    }
+
+    // 2. Request Lock
+    const lock = costGuard.acquireLock('ai_generations', `regen-${platformId}`);
+    if (!lock.acquired) {
+      return;
+    }
+
     setRegeneratingPlatform(platformId);
 
     try {
-      const response = await fetch('/api/ai/generate-platform-content', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          topic: topic || universalTitle || universalCaption || 'Keseruan trip dan wisata seru',
-          mediaType: media?.type,
-          mediaName: media?.name,
-          platforms: [platformId],
-          singlePlatform: platformId
-        })
+      const resJson = await apiService.generateAI({
+        topic: topic || universalTitle || universalCaption || 'Keseruan trip dan wisata seru',
+        mediaType: media?.type,
+        mediaName: media?.name,
+        platforms: [platformId],
+        singlePlatform: platformId
       });
 
-      const resJson = await response.json();
       if (resJson.success && resJson.data && resJson.data[platformId]) {
         const single = resJson.data[platformId];
         onChangePlatformOverride(platformId, {
@@ -215,12 +241,17 @@ export const PlatformContentGenerator: React.FC<PlatformContentGeneratorProps> =
           hashtags: toSafeArray(single.hashtags),
           tags: toSafeArray(single.tags)
         });
+        // Count usage only on real success
+        recordUsage('ai_generations');
+      } else {
+        throw new Error(resJson.error || 'Server error regenerating single platform');
       }
     } catch (err) {
       console.warn(`Regenerate ${platformId} fallback:`, err);
       onChangePlatformOverride(platformId, getContentForPlatform(platformId));
     } finally {
       setRegeneratingPlatform(null);
+      costGuard.releaseLock('ai_generations', `regen-${platformId}`);
     }
   };
 

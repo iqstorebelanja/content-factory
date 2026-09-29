@@ -44,6 +44,7 @@ import {
   AutoHuntResult,
   DiscoveredStoryRecord
 } from '../types';
+import { usePlanContext } from '../contexts/PlanContext';
 import { 
   loadNewsSources, 
   saveNewsSources, 
@@ -66,14 +67,32 @@ import {
   markAllStoriesAsViewed,
   getStoryPriority,
   getStoryEventStatus,
-  calculateNextHuntTimestamp
+  calculateNextHuntTimestamp,
+  getActiveNewsCountry,
+  getSourcesForCountry,
+  loadRecentNewsSearches,
+  addRecentNewsSearch,
+  removeRecentNewsSearch,
+  clearRecentNewsSearches
 } from '../utils/newsEngine';
+import { 
+  SUPPORTED_COUNTRIES, 
+  CountryInfo, 
+  getCountryByCode, 
+  getCategoriesForCountry, 
+  detectCountryFromLocale,
+  formatCategoryLabel,
+  categoriesMatch
+} from '../data/countries';
 import { isRestrictedSourceUrl } from '../utils/mediaDownloader';
 import { NewsSourcesModal } from './NewsSourcesModal';
 import { StoryClusterModal } from './StoryClusterModal';
 import { NewsRewriteModal } from './NewsRewriteModal';
 import { MediaViewerModal } from './MediaViewerModal';
 import { isOnline } from '../services/networkState';
+import { costGuard } from '../services/costGuard';
+import { executeStorageCleanup, isDueForAutomaticCleanup } from '../utils/storageCleanupEngine';
+import { DEFAULT_STORAGE_CACHE_SETTINGS } from '../utils/appSettingsDefaults';
 
 interface NewsHunterScreenProps {
   onCreatePostWithNews: (newsData: {
@@ -112,6 +131,8 @@ export const NewsHunterScreen: React.FC<NewsHunterScreenProps> = ({
   onOpenSettings,
   onStoryCountChange
 }) => {
+  const { canUseFeature, recordUsage, openUpgradeModal } = usePlanContext();
+
   // Persistence state
   const [sources, setSources] = useState<NewsRssSource[]>(() => loadNewsSources());
   const [settings, setSettings] = useState<NewsHunterSettings>(() => loadNewsSettings());
@@ -123,6 +144,9 @@ export const NewsHunterScreen: React.FC<NewsHunterScreenProps> = ({
   // Active view filters
   const [activeTab, setActiveTab] = useState<'hunt' | 'library'>('hunt');
   const [selectedCategory, setSelectedCategory] = useState<string>('All Categories');
+  const [customSearchInput, setCustomSearchInput] = useState<string>('');
+  const [activeCustomSearch, setActiveCustomSearch] = useState<string>('');
+  const [recentSearches, setRecentSearches] = useState<string[]>(() => loadRecentNewsSearches());
   const [discoveryMode, setDiscoveryMode] = useState<'rss_only' | 'rss_web'>('rss_web');
   const [xTrendingActive, setXTrendingActive] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -173,6 +197,20 @@ export const NewsHunterScreen: React.FC<NewsHunterScreenProps> = ({
       setClusters(cached.clusters || clusterArticles(cached.articles));
       setLastHuntTime(cached.lastHuntTime);
     }
+
+    // Lifecycle cleanup trigger: News Hunter opens (Requirement #3)
+    try {
+      const rawSettings = localStorage.getItem('sss_settings');
+      if (rawSettings) {
+        const parsed = JSON.parse(rawSettings);
+        const storageSettings = parsed?.storageCacheSettings || DEFAULT_STORAGE_CACHE_SETTINGS;
+        if (isDueForAutomaticCleanup(storageSettings)) {
+          executeStorageCleanup(storageSettings).catch(err => {
+            console.warn('News Hunter lifecycle cleanup error:', err);
+          });
+        }
+      }
+    } catch {}
   }, []);
 
   // Handler for Manual Auto Hunt trigger (Requirement #14)
@@ -182,10 +220,17 @@ export const NewsHunterScreen: React.FC<NewsHunterScreenProps> = ({
       return;
     }
 
+    const huntCheck = canUseFeature('news_hunts');
+    if (!huntCheck.allowed) {
+      openUpgradeModal('Auto News Hunt', huntCheck.reason || 'Daily hunt limit reached for your plan.');
+      return;
+    }
+
     setIsAutoHunting(true);
     try {
       const huntExecution = await executeAutoHuntRun();
       setAutoHuntResult(huntExecution.result);
+      recordUsage('news_hunts');
       
       const newCount = getUnviewedStoriesCount();
       setUnviewedCount(newCount);
@@ -210,6 +255,13 @@ export const NewsHunterScreen: React.FC<NewsHunterScreenProps> = ({
   // Handler for Pause / Resume Auto Hunt (Requirement #15)
   const handlePauseResumeAutoHunt = () => {
     const isCurrentlyOn = autoHuntSettings.status === 'on';
+    if (!isCurrentlyOn) {
+      const scheduleCheck = canUseFeature('auto_hunt_schedules');
+      if (!scheduleCheck.allowed) {
+        openUpgradeModal('Auto Hunt Schedules', scheduleCheck.reason || 'Auto Hunt schedules are limited on your plan.');
+        return;
+      }
+    }
     const newStatus = isCurrentlyOn ? 'paused' : 'on';
     const updated: AutoHuntSettings = {
       ...autoHuntSettings,
@@ -238,79 +290,164 @@ export const NewsHunterScreen: React.FC<NewsHunterScreenProps> = ({
     setTimeout(() => setSuccessToast(null), 3000);
   };
 
-  // Perform News Hunt
-  const handleHuntNow = async () => {
+  // Perform News Hunt with Cost Guard Protection & Custom Search Support
+  const handleHuntNow = async (overrideCustomQuery?: string) => {
+    const effectiveCustomQuery = (typeof overrideCustomQuery === 'string' ? overrideCustomQuery : customSearchInput).trim();
+
+    if (selectedCategory === 'Custom Search' && !effectiveCustomQuery) {
+      showToast('Please enter a topic or keyword in Custom Search.');
+      return;
+    }
+
+    // 1. Quota Pre-flight
+    const huntCheck = canUseFeature('news_hunts');
+    if (!huntCheck.allowed) {
+      openUpgradeModal('News Hunter', huntCheck.reason || 'Daily hunt limit reached for your plan.');
+      return;
+    }
+
+    // 2. Request Lock & Rapid-Click Debounce
+    const lock = costGuard.acquireLock('news_hunts');
+    if (!lock.acquired) {
+      showToast(lock.reason || 'Hunt already in progress. Please wait.');
+      return;
+    }
+
     if (!isOnline()) {
+      costGuard.releaseLock('news_hunts');
       showToast('Offline Mode: Internet connection is required to hunt live RSS news. Saved library items remain accessible offline.');
       return;
+    }
+
+    if (effectiveCustomQuery) {
+      const updatedRecent = addRecentNewsSearch(effectiveCustomQuery);
+      setRecentSearches(updatedRecent);
+      setActiveCustomSearch(effectiveCustomQuery);
+    } else {
+      setActiveCustomSearch('');
     }
 
     setIsHunting(true);
     setSourceErrors([]);
     const errors: { sourceName: string; error: string }[] = [];
 
-    // Filter active sources for selected category
-    const activeSources = sources.filter(s => {
-      if (!s.active) return false;
-      if (selectedCategory === 'All Categories') return true;
-      return s.category.toLowerCase() === selectedCategory.toLowerCase();
-    });
+    try {
+      // 1. Determine active target country internally (Requirement #2, #7)
+      const targetCountry = activeCountry;
+      const allowGlobal = settings.supplementWithGlobal !== false;
 
-    let collectedArticles: NewsArticle[] = [];
+      // 2. Filter active sources for selected country, category, and custom search
+      const activeSources = sources.filter(s => {
+        if (!s.active) return false;
 
-    // Fetch RSS in parallel batches
-    const rssPromises = activeSources.map(async src => {
-      try {
-        const fetched = await fetchRssFeed(src);
-        return fetched;
-      } catch (err: any) {
-        errors.push({
-          sourceName: src.name,
-          error: err?.message || 'Direct RSS access is blocked by the source/browser.'
+        const sCountry = (s.countryCode || 'ID').toUpperCase().trim();
+        const isDirectCountry = sCountry === targetCountry.code;
+        const isGlobal = s.isGlobal || sCountry === 'GLOBAL';
+
+        if (!isDirectCountry && (!allowGlobal || !isGlobal)) {
+          return false;
+        }
+
+        if (selectedCategory === 'All Categories' || selectedCategory === 'Custom Search') {
+          return true;
+        }
+
+        return categoriesMatch(s.category, selectedCategory);
+      });
+
+      let collectedArticles: NewsArticle[] = [];
+
+      // Fetch RSS in parallel batches
+      const rssPromises = activeSources.map(async src => {
+        try {
+          const fetched = await fetchRssFeed(src);
+          return fetched;
+        } catch (err: any) {
+          errors.push({
+            sourceName: src.name,
+            error: err?.message || 'Direct RSS access is blocked by the source/browser.'
+          });
+          return [];
+        }
+      });
+
+      const rssResults = await Promise.all(rssPromises);
+      for (const res of rssResults) {
+        collectedArticles.push(...res);
+      }
+
+      // If Custom Search is provided, filter RSS articles for relevance to the custom query
+      if (effectiveCustomQuery) {
+        const qLower = effectiveCustomQuery.toLowerCase();
+        const qTokens = qLower.split(/\s+/).filter(Boolean);
+        collectedArticles = collectedArticles.filter(art => {
+          const hay = `${art.title || ''} ${art.summary || ''} ${art.category || ''} ${art.source || ''}`.toLowerCase();
+          return hay.includes(qLower) || (qTokens.length > 0 && qTokens.every(tok => hay.includes(tok)));
         });
-        return [];
       }
-    });
 
-    const rssResults = await Promise.all(rssPromises);
-    for (const res of rssResults) {
-      collectedArticles.push(...res);
-    }
-
-    // Optional Web Discovery
-    if (discoveryMode === 'rss_web') {
-      try {
-        const webCategory = selectedCategory === 'All Categories' ? 'Nasional' : selectedCategory;
-        const webArticles = await fetchWebDiscovery(webCategory);
-        collectedArticles.push(...webArticles);
-      } catch (err) {
-        console.warn('Web discovery error:', err);
+      // Optional Web Discovery with Cost Guard Web Search protection (Requirement #8)
+      // Used when discoveryMode === 'rss_web' or when RSS cannot satisfy a Custom Search query (if plan & Web Search enabled)
+      const shouldRunWebDiscovery = discoveryMode === 'rss_web';
+      if (shouldRunWebDiscovery) {
+        const webCheck = canUseFeature('web_search');
+        if (!webCheck.allowed) {
+          if (collectedArticles.length === 0) {
+            showToast(webCheck.reason || 'Web Search limit reached. Try again later or upgrade to Pro.');
+          }
+        } else {
+          try {
+            const webCategory = (selectedCategory === 'All Categories' || selectedCategory === 'Custom Search')
+              ? (effectiveCustomQuery || 'National')
+              : selectedCategory;
+            const webArticles = await fetchWebDiscovery(
+              webCategory,
+              targetCountry.code,
+              targetCountry.name,
+              targetCountry.defaultLanguage,
+              effectiveCustomQuery || undefined
+            );
+            if (webArticles.length > 0) {
+              collectedArticles.push(...webArticles);
+              recordUsage('web_search');
+            }
+          } catch (err) {
+            console.warn('Web discovery error:', err);
+          }
+        }
       }
+
+      // Group & Cluster
+      const formedClusters = clusterArticles(collectedArticles);
+      
+      // Sort clusters based on initial preference
+      formedClusters.sort((a, b) => b.averageHypeScore - a.averageHypeScore);
+
+      const huntTimestamp = new Date().toISOString();
+      setArticles(collectedArticles);
+      setClusters(formedClusters);
+      setSourceErrors(errors);
+      setLastHuntTime(huntTimestamp);
+
+      // Save to cache
+      saveNewsCache({
+        lastHuntTime: huntTimestamp,
+        articles: collectedArticles,
+        clusters: formedClusters,
+        category: effectiveCustomQuery ? `${selectedCategory} (${effectiveCustomQuery})` : selectedCategory,
+        discoveryMode
+      });
+
+      // Count hunt quota ONLY upon successful execution
+      recordUsage('news_hunts');
+      showToast(`News Hunt complete! Found ${collectedArticles.length} stories in ${formedClusters.length} clusters.`);
+    } catch (err: any) {
+      console.error('News hunt error:', err);
+      showToast('News hunt encountered an issue: ' + (err?.message || 'Network error'));
+    } finally {
+      setIsHunting(false);
+      costGuard.releaseLock('news_hunts');
     }
-
-    // Group & Cluster
-    const formedClusters = clusterArticles(collectedArticles);
-    
-    // Sort clusters based on initial preference
-    formedClusters.sort((a, b) => b.averageHypeScore - a.averageHypeScore);
-
-    const huntTimestamp = new Date().toISOString();
-    setArticles(collectedArticles);
-    setClusters(formedClusters);
-    setSourceErrors(errors);
-    setLastHuntTime(huntTimestamp);
-
-    // Save to cache
-    saveNewsCache({
-      lastHuntTime: huntTimestamp,
-      articles: collectedArticles,
-      clusters: formedClusters,
-      category: selectedCategory,
-      discoveryMode
-    });
-
-    setIsHunting(false);
-    showToast(`News Hunt complete! Found ${collectedArticles.length} stories in ${formedClusters.length} clusters.`);
   };
 
   const handleClearCache = () => {
@@ -326,13 +463,16 @@ export const NewsHunterScreen: React.FC<NewsHunterScreenProps> = ({
     saveNewsSources(updated);
   };
 
-  // Save article to News Library
+  // Save article to News Library (Requirement #17: Preserve country, category, source, language)
   const handleSaveToLibrary = (art: NewsArticle, rewrite?: NewsAiRewrite) => {
     const item: SavedNewsItem = {
       id: `saved-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       title: rewrite?.selectedTitle || art.title,
       url: art.url,
       source: art.source,
+      countryCode: art.countryCode || activeCountry.code,
+      countryName: art.countryName || activeCountry.name,
+      sourceLanguage: art.sourceLanguage || activeCountry.defaultLanguage,
       category: art.category,
       savedAt: new Date().toISOString(),
       publishedAt: art.publishedAt,
@@ -458,9 +598,9 @@ export const NewsHunterScreen: React.FC<NewsHunterScreenProps> = ({
   const filteredClusters = useMemo(() => {
     return clusters.filter(cl => {
       // Category filter
-      if (selectedCategory !== 'All Categories') {
+      if (selectedCategory !== 'All Categories' && selectedCategory !== 'Custom Search') {
         const matchesCategory = cl.articles.some(
-          a => a.category.toLowerCase() === selectedCategory.toLowerCase()
+          a => categoriesMatch(a.category, selectedCategory) || (activeCustomSearch && a.category.toLowerCase() === activeCustomSearch.toLowerCase())
         );
         if (!matchesCategory) return false;
       }
@@ -509,18 +649,38 @@ export const NewsHunterScreen: React.FC<NewsHunterScreenProps> = ({
     });
   }, [clusters, selectedCategory, hypeFilter, mediaFilter, onlyDownloadable, searchQuery, sortBy]);
 
-  const categories: NewsCategory[] = [
-    'All Categories',
-    'Hype / Viral',
-    'Nasional',
-    'Internasional',
-    'Sepakbola',
-    'Persib',
-    'Teknologi',
-    'Ekonomi',
-    'Lifestyle',
-    'Adventure'
-  ];
+  const activeCountry: CountryInfo = useMemo(() => {
+    return getActiveNewsCountry(settings);
+  }, [settings]);
+
+  const categories = useMemo(() => {
+    const list = getCategoriesForCountry(activeCountry.code).map(c => formatCategoryLabel(c));
+    return Array.from(new Set(['All Categories', 'Custom Search', ...list.filter(c => c !== 'All Categories' && c !== 'Custom Search')]));
+  }, [activeCountry.code]);
+
+  const countrySourcesCount = useMemo(() => {
+    return sources.filter(s => {
+      if (!s.active) return false;
+      const sCountry = (s.countryCode || 'ID').toUpperCase().trim();
+      const isDirect = sCountry === activeCountry.code;
+      if (!isDirect) return false;
+      if (selectedCategory === 'All Categories' || selectedCategory === 'Custom Search') return true;
+      return categoriesMatch(s.category, selectedCategory);
+    }).length;
+  }, [sources, activeCountry.code, selectedCategory]);
+
+  const handleSelectRegion = (mode: 'auto' | 'manual', countryCode?: string) => {
+    const updatedSettings: NewsHunterSettings = {
+      ...settings,
+      newsRegionMode: mode,
+      manualCountryCode: countryCode || settings.manualCountryCode || 'ID'
+    };
+    setSettings(updatedSettings);
+    saveNewsSettings(updatedSettings);
+    setSelectedCategory('All Categories');
+    const cName = mode === 'auto' ? 'Automatic' : getCountryByCode(countryCode || 'ID').name;
+    showToast(`News Region set to ${cName}`);
+  };
 
   return (
     <div className="space-y-5 pb-24 animate-fadeIn">
@@ -544,7 +704,7 @@ export const NewsHunterScreen: React.FC<NewsHunterScreenProps> = ({
               <h1 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2 flex-wrap">
                 NEWS HUNTER
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-600 dark:text-indigo-400">
-                  DISCOVERY & REWRITE
+                  GLOBAL DISCOVERY & REWRITE
                 </span>
                 <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30">
                   ONLINE REQUIRED
@@ -571,9 +731,55 @@ export const NewsHunterScreen: React.FC<NewsHunterScreenProps> = ({
           </button>
         </div>
 
-        {/* Action Controls & Hunt Now */}
+        {/* Requirement #1, #2, #3: NEWS REGION SELECTOR ROW (Global Neutral Presentation) */}
+        <div className="bg-white/80 dark:bg-slate-900/80 p-3 rounded-2xl border border-indigo-200/60 dark:border-indigo-800/40 space-y-2">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-2">
+              <Globe className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
+              <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                News Region:
+              </span>
+              <span className="text-xs font-extrabold px-2.5 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800 flex items-center gap-1.5 shadow-xs">
+                {settings.newsRegionMode === 'manual' ? (
+                  <span>{activeCountry.name}</span>
+                ) : (
+                  <span>Automatic</span>
+                )}
+              </span>
+            </div>
+
+            {/* Quick Country Dropdown */}
+            <div className="flex items-center gap-2">
+              <select
+                value={settings.newsRegionMode === 'manual' ? (settings.manualCountryCode || 'ID') : 'auto'}
+                onChange={e => {
+                  const val = e.target.value;
+                  if (val === 'auto') {
+                    handleSelectRegion('auto');
+                  } else {
+                    handleSelectRegion('manual', val);
+                  }
+                }}
+                className="text-xs font-bold px-3 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+              >
+                <option value="auto">
+                  Automatic
+                </option>
+                <optgroup label="Countries & Regions">
+                  {SUPPORTED_COUNTRIES.map(c => (
+                    <option key={c.code} value={c.code}>
+                      {c.name}
+                    </option>
+                  ))}
+                </optgroup>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        {/* Action Controls, Category, Discovery Mode & Custom Search */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
-          {/* Category Dropdown */}
+          {/* Category Dropdown (Neutral Labels) */}
           <div className="space-y-1">
             <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
               Category
@@ -583,23 +789,26 @@ export const NewsHunterScreen: React.FC<NewsHunterScreenProps> = ({
               onChange={e => setSelectedCategory(e.target.value)}
               className="w-full text-xs font-semibold px-3 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
             >
-              {categories.map(cat => (
-                <option key={cat} value={cat}>{cat}</option>
+              {categories.map((cat, idx) => (
+                <option key={`${cat}-${idx}`} value={cat}>{cat}</option>
               ))}
             </select>
           </div>
 
-          {/* Discovery Mode Selector */}
+          {/* Discovery Mode Selector (Requirement #7) */}
           <div className="space-y-1">
             <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
               Discovery Mode
             </label>
-            <div className="grid grid-cols-2 gap-1.5 bg-slate-100 dark:bg-slate-800/80 p-1 rounded-xl">
+            <div className="grid grid-cols-3 gap-1 bg-slate-100 dark:bg-slate-800/80 p-1 rounded-xl">
               <button
                 type="button"
-                onClick={() => setDiscoveryMode('rss_only')}
-                className={`text-[11px] font-bold py-1.5 rounded-lg transition-all ${
-                  discoveryMode === 'rss_only'
+                onClick={() => {
+                  setDiscoveryMode('rss_only');
+                  setXTrendingActive(false);
+                }}
+                className={`text-[10px] sm:text-[11px] font-bold py-1.5 rounded-lg transition-all ${
+                  discoveryMode === 'rss_only' && !xTrendingActive
                     ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-sm'
                     : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
                 }`}
@@ -608,50 +817,195 @@ export const NewsHunterScreen: React.FC<NewsHunterScreenProps> = ({
               </button>
               <button
                 type="button"
-                onClick={() => setDiscoveryMode('rss_web')}
-                className={`text-[11px] font-bold py-1.5 rounded-lg transition-all ${
-                  discoveryMode === 'rss_web'
+                onClick={() => {
+                  const check = canUseFeature('web_search');
+                  if (!check.allowed) {
+                    openUpgradeModal('Web Search Discovery', check.reason || 'Web Search is available on Pro.');
+                    return;
+                  }
+                  setDiscoveryMode('rss_web');
+                  setXTrendingActive(false);
+                }}
+                className={`text-[10px] sm:text-[11px] font-bold py-1.5 rounded-lg transition-all ${
+                  discoveryMode === 'rss_web' && !xTrendingActive
                     ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-sm'
                     : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
                 }`}
               >
-                RSS + Web Search
+                RSS + Web {!canUseFeature('web_search').allowed ? '🔒' : ''}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const check = canUseFeature('x_trending');
+                  if (!check.allowed) {
+                    openUpgradeModal('X Trending', check.reason || 'X Trending is available on Pro.');
+                    return;
+                  }
+                  setXTrendingActive(prev => !prev);
+                }}
+                className={`text-[10px] sm:text-[11px] font-bold py-1.5 rounded-lg transition-all ${
+                  xTrendingActive
+                    ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-sm'
+                    : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                }`}
+              >
+                X Trending {!canUseFeature('x_trending').allowed ? '🔒' : ''}
               </button>
             </div>
           </div>
         </div>
 
-        {/* X Trending Toggle & Notice */}
-        <div className="pt-1 flex items-center justify-between bg-slate-50 dark:bg-slate-900/50 p-3 rounded-2xl border border-slate-200/80 dark:border-slate-800/80">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
-              X Trending
-            </span>
-            <span className="text-[10px] text-slate-400">
-              (Live trend stream)
-            </span>
+        {/* Requirement #6 - #11: CUSTOM SEARCH & RECENT SEARCHES */}
+        <div className="bg-white/80 dark:bg-slate-900/80 p-3 rounded-2xl border border-slate-200/80 dark:border-slate-800 space-y-2.5">
+          <div className="flex items-center justify-between gap-2">
+            <label className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 flex items-center gap-1.5">
+              <Search className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+              <span>Custom Search</span>
+            </label>
+            {activeCustomSearch && (
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800 flex items-center gap-1">
+                <span>Topic: "{activeCustomSearch}"</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveCustomSearch('');
+                    setCustomSearchInput('');
+                  }}
+                  className="hover:text-indigo-800 dark:hover:text-indigo-200"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
           </div>
 
-          <label className="relative inline-flex items-center cursor-pointer">
-            <input
-              type="checkbox"
-              checked={xTrendingActive}
-              onChange={e => setXTrendingActive(e.target.checked)}
-              className="sr-only peer"
-            />
-            <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
-          </label>
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1">
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                type="text"
+                value={customSearchInput}
+                onChange={e => setCustomSearchInput(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && customSearchInput.trim()) {
+                    e.preventDefault();
+                    handleHuntNow(customSearchInput);
+                  }
+                }}
+                placeholder="Type a topic or keyword (e.g. Persib, Premier League, NBA Finals, Technology)..."
+                className="w-full text-xs pl-8 pr-8 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+              {customSearchInput && (
+                <button
+                  type="button"
+                  onClick={() => setCustomSearchInput('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+            <button
+              type="button"
+              disabled={isHunting || costGuard.isLocked('news_hunts') || !customSearchInput.trim()}
+              onClick={() => handleHuntNow(customSearchInput)}
+              className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-xs transition-all disabled:opacity-50 shrink-0 cursor-pointer"
+            >
+              Search
+            </button>
+          </div>
+
+          {recentSearches.length > 0 && (
+            <div className="flex items-center justify-between gap-2 flex-wrap pt-1">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mr-0.5">
+                  Recent Searches:
+                </span>
+                {recentSearches.map(term => (
+                  <span
+                    key={term}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[11px] font-semibold text-slate-700 dark:text-slate-300 hover:border-indigo-400 transition-colors"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCustomSearchInput(term);
+                        handleHuntNow(term);
+                      }}
+                      className="hover:text-indigo-600 dark:hover:text-indigo-400 cursor-pointer"
+                    >
+                      {term}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setRecentSearches(removeRecentNewsSearch(term))}
+                      className="text-slate-400 hover:text-rose-500 ml-0.5"
+                      title="Remove from recent searches"
+                    >
+                      <X className="w-2.5 h-2.5" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+              <button
+                type="button"
+                onClick={() => setRecentSearches(clearRecentNewsSearches())}
+                className="text-[10px] font-bold text-slate-400 hover:text-rose-500 transition-colors"
+              >
+                Clear
+              </button>
+            </div>
+          )}
         </div>
 
-        {/* X Trending Warning when checked (Requirement #5) */}
+        {/* Requirement #15: X Trending regional notice - never fake local data */}
         {xTrendingActive && (
           <div className="p-3 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/40 text-[11px] text-amber-800 dark:text-amber-300 flex items-start gap-2">
             <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
             <div>
-              <div className="font-bold">X Trending unavailable — valid X API/access is required.</div>
+              <div className="font-bold">
+                Regional trending data is not currently available for {settings.newsRegionMode === 'manual' ? activeCountry.name : 'the selected region'}.
+              </div>
               <p className="mt-0.5 text-slate-600 dark:text-slate-300">
-                News Hunter continues operating normally with verified RSS sources and Web Search without X.
+                Direct X Regional API access is restricted. News Hunter continues operating normally with verified RSS sources and Web Search.
               </p>
+            </div>
+          </div>
+        )}
+
+        {/* Requirement #21: Fallback when no local RSS source is configured for active country & category */}
+        {countrySourcesCount === 0 && selectedCategory !== 'All Categories' && selectedCategory !== 'Custom Search' && (
+          <div className="p-3.5 rounded-2xl bg-indigo-50/80 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800/60 text-xs text-indigo-900 dark:text-indigo-200 flex items-start justify-between gap-3 flex-wrap">
+            <div className="flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0 mt-0.5" />
+              <div>
+                <span className="font-bold block">
+                  No local RSS source is configured for this category{settings.newsRegionMode === 'manual' ? ` in ${activeCountry.name}` : ''}.
+                </span>
+                <span className="text-[11px] text-slate-600 dark:text-slate-300">
+                  You can discover stories for "{selectedCategory}" using Web Search or switch to Global Sources.
+                </span>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  setDiscoveryMode('rss_web');
+                  handleHuntNow();
+                }}
+                className="px-3 py-1.5 rounded-xl bg-indigo-600 text-white font-bold text-[11px] hover:bg-indigo-500 shadow-xs"
+              >
+                Search Web
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSelectRegion('manual', 'GLOBAL')}
+                className="px-3 py-1.5 rounded-xl bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 font-bold text-[11px] hover:bg-slate-50"
+              >
+                Use Global Sources
+              </button>
             </div>
           </div>
         )}
@@ -661,8 +1015,8 @@ export const NewsHunterScreen: React.FC<NewsHunterScreenProps> = ({
           <button
             id="btn-hunt-now"
             type="button"
-            disabled={isHunting}
-            onClick={handleHuntNow}
+            disabled={isHunting || costGuard.isLocked('news_hunts')}
+            onClick={() => handleHuntNow()}
             className="flex-1 py-3.5 px-4 rounded-2xl bg-indigo-600 hover:bg-indigo-500 active:scale-[0.99] text-white font-bold text-sm flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/30 transition-all disabled:opacity-50"
           >
             {isHunting ? (
@@ -673,7 +1027,9 @@ export const NewsHunterScreen: React.FC<NewsHunterScreenProps> = ({
             ) : (
               <>
                 <Search className="w-4 h-4" />
-                <span>Hunt Now ({selectedCategory})</span>
+                <span>
+                  Hunt Now ({customSearchInput.trim() ? `${selectedCategory !== 'All Categories' && selectedCategory !== 'Custom Search' ? `${selectedCategory}: ` : ''}"${customSearchInput.trim()}"` : selectedCategory})
+                </span>
               </>
             )}
           </button>
@@ -1058,8 +1414,9 @@ export const NewsHunterScreen: React.FC<NewsHunterScreenProps> = ({
               </p>
               <button
                 type="button"
-                onClick={handleHuntNow}
-                className="px-5 py-2.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-500 rounded-xl shadow-sm"
+                disabled={isHunting || costGuard.isLocked('news_hunts')}
+                onClick={() => handleHuntNow()}
+                className="px-5 py-2.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-500 rounded-xl shadow-sm disabled:opacity-50"
               >
                 Hunt Now
               </button>
@@ -1107,9 +1464,17 @@ export const NewsHunterScreen: React.FC<NewsHunterScreenProps> = ({
                         </span>
                       )}
 
+                      {/* Country Badge (Requirement #16) */}
+                      {art.countryName && (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 flex items-center gap-1 border border-slate-200 dark:border-slate-700">
+                          <span>{art.countryCode === 'GLOBAL' ? '🌎' : (getCountryByCode(art.countryCode || 'ID')?.flag || '📰')}</span>
+                          <span>{art.countryName}</span>
+                        </span>
+                      )}
+
                       {/* Category Badge */}
                       <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
-                        {art.category}
+                        {formatCategoryLabel(art.category)}
                       </span>
                     </div>
 
@@ -1286,8 +1651,17 @@ export const NewsHunterScreen: React.FC<NewsHunterScreenProps> = ({
                     {cluster.mainTopic}
                   </h3>
 
-                  {/* Metadata: Source + Published */}
-                  <div className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-3 flex-wrap">
+                  {/* Metadata: Source + Country + Published */}
+                  <div className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-2 flex-wrap">
+                    {art.countryName && (
+                      <>
+                        <span className="flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-300">
+                          <span>{art.countryCode === 'GLOBAL' ? '🌎' : (getCountryByCode(art.countryCode || 'ID')?.flag || '📰')}</span>
+                          <span>{art.countryName}</span>
+                        </span>
+                        <span>•</span>
+                      </>
+                    )}
                     <span>
                       <strong className="text-slate-700 dark:text-slate-300">Source:</strong> {art.source}
                     </span>
@@ -1377,6 +1751,11 @@ export const NewsHunterScreen: React.FC<NewsHunterScreenProps> = ({
                       <button
                         type="button"
                         onClick={() => {
+                          const check = canUseFeature('news_rewrites');
+                          if (!check.allowed) {
+                            openUpgradeModal('News AI Rewrite', check.reason || 'Daily rewrite limit reached for your plan.');
+                            return;
+                          }
                           setRewriteArticle(art);
                           setRewriteCluster(cluster);
                           setInitialRewriteData(null);
@@ -1447,9 +1826,15 @@ export const NewsHunterScreen: React.FC<NewsHunterScreenProps> = ({
                   className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 space-y-3 shadow-sm"
                 >
                   <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {item.countryName && (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 flex items-center gap-1 border border-slate-200 dark:border-slate-700">
+                          <span>{item.countryCode === 'GLOBAL' ? '🌎' : (getCountryByCode(item.countryCode || 'ID')?.flag || '📰')}</span>
+                          <span>{item.countryName}</span>
+                        </span>
+                      )}
                       <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400">
-                        {item.category}
+                        {formatCategoryLabel(item.category)}
                       </span>
                       <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
                         {item.source}

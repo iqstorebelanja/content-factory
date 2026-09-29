@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { sanitizeUserFacingError } from '../utils/errorSanitizer';
 
 declare global {
   interface Window {
@@ -17,6 +18,10 @@ interface DriveFile {
   size?: string;
 }
 
+const DEFAULT_PUBLIC_OAUTH_CLIENT_ID =
+  (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_GOOGLE_CLIENT_ID) ||
+  '173835053329-7a9ssed6p8l3nl71f8i6kk6nimj8ae0c.apps.googleusercontent.com';
+
 export function useGoogleDrive() {
   const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -24,7 +29,7 @@ export function useGoogleDrive() {
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [files, setFiles] = useState<DriveFile[]>([]);
 
-  // Check saved token in sessionStorage
+  // Check saved token in ephemeral sessionStorage (never persisted in localStorage or backups)
   useEffect(() => {
     const savedToken = sessionStorage.getItem('gdrive_access_token');
     const savedEmail = sessionStorage.getItem('gdrive_user_email');
@@ -49,7 +54,7 @@ export function useGoogleDrive() {
 
       try {
         const client = window.google.accounts.oauth2.initTokenClient({
-          client_id: '173835053329-client.apps.googleusercontent.com', // Will be supplemented by GIS or active token
+          client_id: DEFAULT_PUBLIC_OAUTH_CLIENT_ID,
           scope: 'https://www.googleapis.com/auth/drive.readonly',
           callback: (response: any) => {
             if (response.error) {
@@ -74,14 +79,11 @@ export function useGoogleDrive() {
     setIsLoading(true);
     setError(null);
     try {
-      // In this environment, we can also check if a bearer token is provided or use Google GIS popup
       const accessToken = await initTokenClient();
       setToken(accessToken);
       await fetchDriveMediaFiles(accessToken);
     } catch (err: any) {
-      console.warn('Drive connection note:', err.message);
-      // Fallback for preview demo if client id popup restricted in iframe
-      setError(err.message || 'Could not connect Google Drive');
+      setError(sanitizeUserFacingError(err, 'Could not connect Google Drive'));
     } finally {
       setIsLoading(false);
     }
@@ -111,13 +113,12 @@ export function useGoogleDrive() {
         }
       );
       if (!res.ok) {
-        throw new Error(`Drive API error: ${res.statusText}`);
+        throw new Error(`Drive API error (${res.status})`);
       }
       const data = await res.json();
       setFiles(data.files || []);
     } catch (err: any) {
-      console.error('Failed to load drive files:', err);
-      setError(err.message);
+      setError(sanitizeUserFacingError(err, 'Failed to load Google Drive files.'));
     } finally {
       setIsLoading(false);
     }
@@ -126,7 +127,7 @@ export function useGoogleDrive() {
   return {
     isConnected: !!token,
     token,
-    userEmail: userEmail || 'iqstorebelanja@gmail.com',
+    userEmail: userEmail || (token ? 'Connected Google Account' : undefined),
     isLoading,
     error,
     files,

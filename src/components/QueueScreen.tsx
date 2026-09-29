@@ -292,7 +292,7 @@ export const QueueScreen: React.FC<QueueScreenProps> = ({
         </div>
         <button
           id="btn-new-scheduled"
-          onClick={onCreateNewScheduled}
+          onClick={() => onCreateNewScheduled()}
           className="text-xs font-semibold px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white flex items-center gap-1.5 shadow-md shadow-indigo-600/20 transition-all active:scale-95"
         >
           <PlusCircle className="w-3.5 h-3.5" />
@@ -454,6 +454,7 @@ export const QueueScreen: React.FC<QueueScreenProps> = ({
               <option value="all">All Status</option>
               <option value="scheduled">Scheduled</option>
               <option value="queued">Ready to Post</option>
+              <option value="failed">Failed</option>
               <option value="paused">Paused</option>
               <option value="published">Published</option>
             </select>
@@ -521,7 +522,7 @@ export const QueueScreen: React.FC<QueueScreenProps> = ({
               </button>
             ) : null}
             <button
-              onClick={onCreateNewScheduled}
+              onClick={() => onCreateNewScheduled()}
               className="bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs px-4 py-1.5 rounded-xl transition-all shadow-sm"
             >
               Schedule New Post

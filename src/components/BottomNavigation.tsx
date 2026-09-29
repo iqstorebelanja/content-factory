@@ -9,6 +9,7 @@ import {
   CalendarClock
 } from 'lucide-react';
 import { NavigationTab } from '../types';
+import { t } from '../utils/i18n';
 
 export type { NavigationTab };
 
@@ -18,6 +19,7 @@ interface BottomNavProps {
   draftsCount?: number;
   newStoriesCount?: number;
   queueCount?: number;
+  language?: string;
 }
 
 export const BottomNavigation: React.FC<BottomNavProps> = ({
@@ -25,13 +27,14 @@ export const BottomNavigation: React.FC<BottomNavProps> = ({
   onSelectTab,
   draftsCount = 0,
   newStoriesCount = 0,
-  queueCount = 0
+  queueCount = 0,
+  language
 }) => {
   const navItems: { id: NavigationTab; label: string; icon: React.ReactNode; badge?: number; customBadge?: React.ReactNode; badgeColor?: string }[] = [
-    { id: 'home', label: 'HOME', icon: <Home className="w-4.5 h-4.5" /> },
+    { id: 'home', label: t('nav.home', language, 'HOME'), icon: <Home className="w-4.5 h-4.5" /> },
     { 
       id: 'news', 
-      label: 'NEWS', 
+      label: t('nav.news', language, 'NEWS'), 
       icon: <Radio className="w-4.5 h-4.5" />,
       customBadge: newStoriesCount > 0 ? (
         <span className="absolute -top-1.5 -right-3 px-1 py-0.2 rounded-full bg-rose-600 text-white text-[7.5px] font-black flex items-center justify-center leading-tight shadow-sm whitespace-nowrap">
@@ -39,17 +42,17 @@ export const BottomNavigation: React.FC<BottomNavProps> = ({
         </span>
       ) : null
     },
-    { id: 'create', label: 'CREATE', icon: <PlusCircle className="w-4.5 h-4.5" /> },
+    { id: 'create', label: t('nav.create', language, 'CREATE'), icon: <PlusCircle className="w-4.5 h-4.5" /> },
     { 
       id: 'queue', 
-      label: 'QUEUE', 
+      label: t('nav.queue', language, 'QUEUE'), 
       icon: <CalendarClock className="w-4.5 h-4.5" />, 
       badge: queueCount,
       badgeColor: 'bg-indigo-600 text-white'
     },
-    { id: 'drafts', label: 'DRAFTS', icon: <FileText className="w-4.5 h-4.5" />, badge: draftsCount },
-    { id: 'history', label: 'HISTORY', icon: <Clock className="w-4.5 h-4.5" /> },
-    { id: 'settings', label: 'SETTINGS', icon: <SettingsIcon className="w-4.5 h-4.5" /> },
+    { id: 'drafts', label: t('nav.drafts', language, 'DRAFTS'), icon: <FileText className="w-4.5 h-4.5" />, badge: draftsCount },
+    { id: 'history', label: t('nav.history', language, 'HISTORY'), icon: <Clock className="w-4.5 h-4.5" /> },
+    { id: 'settings', label: t('nav.settings', language, 'SETTINGS'), icon: <SettingsIcon className="w-4.5 h-4.5" /> },
   ];
 
   return (

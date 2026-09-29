@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { 
   Globe, 
   Clock, 
@@ -23,7 +23,15 @@ import {
   RefreshCw,
   CheckCircle2,
   RotateCcw,
-  Database
+  Database,
+  Search,
+  X,
+  FileText,
+  Share2,
+  Layers,
+  Image,
+  Zap,
+  Calendar
 } from 'lucide-react';
 import { 
   PlatformId, 
@@ -36,6 +44,7 @@ import {
   AutoHuntInterval,
   HypeThresholdOption
 } from '../types';
+import { t } from '../utils/i18n';
 import { PLATFORMS } from '../data/platforms';
 import { 
   isPlatformConfigured, 
@@ -61,6 +70,20 @@ import { SocialAccountsModal } from './SocialAccountsModal';
 import { GroupsManager } from './GroupsManager';
 import { AppHealthCheckSection } from './AppHealthCheckSection';
 import { DataBackupSection } from './DataBackupSection';
+import { AppStatusHeader } from './settings/AppStatusHeader';
+import { GeneralSettingsSection } from './settings/GeneralSettingsSection';
+import { ContentSettingsSection } from './settings/ContentSettingsSection';
+import { NewsHunterSettingsSection } from './settings/NewsHunterSettingsSection';
+import { AiSettingsSection } from './settings/AiSettingsSection';
+import { SchedulingSettingsSection } from './settings/SchedulingSettingsSection';
+import { SharingSettingsSection } from './settings/SharingSettingsSection';
+import { MediaSettingsSection } from './settings/MediaSettingsSection';
+import { NotificationSettingsSection } from './settings/NotificationSettingsSection';
+import { StorageManagementSection } from './settings/StorageManagementSection';
+import { AboutSettingsSection } from './settings/AboutSettingsSection';
+import { SubscriptionPlanSection } from './settings/SubscriptionPlanSection';
+import { usePlanContext } from '../contexts/PlanContext';
+import { Crown } from 'lucide-react';
 
 interface SettingsScreenProps {
   settings: AppSettings;
@@ -80,7 +103,28 @@ interface SettingsScreenProps {
   drafts?: any[];
   history?: any[];
   onReloadAllData?: (mergedOrRestored?: any) => void;
+  initialSubTab?: SettingsSubTab;
+  currentQueueCount?: number;
+  currentScheduledCount?: number;
 }
+
+export type SettingsSubTab = 
+  | 'general'
+  | 'subscription'
+  | 'content'
+  | 'news_hunter'
+  | 'ai'
+  | 'scheduling'
+  | 'sharing'
+  | 'media'
+  | 'notifications'
+  | 'backup'
+  | 'storage'
+  | 'about'
+  | 'accounts'
+  | 'groups'
+  | 'health'
+  | 'rss_sources';
 
 export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   settings,
@@ -99,11 +143,46 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   onDisconnectDrive,
   drafts,
   history,
-  onReloadAllData
+  onReloadAllData,
+  initialSubTab = 'general',
+  currentQueueCount = 0,
+  currentScheduledCount = 0
 }) => {
-  const [activeSubTab, setActiveSubTab] = useState<'accounts' | 'groups' | 'general' | 'health' | 'rss_sources' | 'backup' | 'notifications' | 'about'>('accounts');
+  const planState = usePlanContext();
+  const [activeSubTab, setActiveSubTab] = useState<SettingsSubTab>(initialSubTab);
+  const [searchQuery, setSearchQuery] = useState('');
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [focusPlatform, setFocusPlatform] = useState<PlatformId | null>(null);
+
+  const SEARCHABLE_SETTINGS = useMemo(() => [
+    { id: 'general' as SettingsSubTab, title: 'General Application Settings', category: 'A. General', description: 'App name, timezone (Asia/Jakarta), appearance theme, display language, landing page', keywords: ['app name', 'timezone', 'asia/jakarta', 'theme', 'dark', 'light', 'system', 'language', 'indonesian', 'english', 'landing', 'home', 'news', 'create'] },
+    { id: 'subscription' as SettingsSubTab, title: 'Account & Subscription / Plans & Upgrade', category: '★ Account & Plan', description: 'Guest / Local Mode account status, FREE and PRO plans, billing status, future cloud sync, and ADMIN TEST controls', keywords: ['account', 'account & subscription', 'guest', 'local mode', 'signed in', 'cloud sync', 'plan', 'subscription', 'pro', 'free', 'upgrade', 'usage', 'limits', 'admin test', 'quota', 'pricing', 'billing'] },
+    { id: 'content' as SettingsSubTab, title: 'Content & Hashtag Limits', category: 'B. Content', description: 'Default content formats, per-network hashtag caps, global default hashtags', keywords: ['content', 'hashtag', 'hashtags', 'limits', 'post', 'reel', 'video', 'shorts', 'facebook', 'instagram', 'tiktok', 'youtube', 'x', 'twitter'] },
+    { id: 'news_hunter' as SettingsSubTab, title: 'News Hunter Defaults', category: 'C. News Hunter', description: 'Default category topics, viral hype score filters, media preferences, feed sorting', keywords: ['news', 'news hunter', 'hype', 'viral', 'categories', 'media filter', 'sorting', 'newest', 'sources', 'persib', 'auto hunt'] },
+    { id: 'ai' as SettingsSubTab, title: 'AI Assistant & Tone Settings', category: 'D. AI', description: 'Master AI assistant toggle, tone rewrites, writing style, zero client key exposure', keywords: ['ai', 'gemini', 'assistant', 'rewrite', 'news rewrite', 'writing language', 'writing style', 'tone', 'api keys', 'security'] },
+    { id: 'scheduling' as SettingsSubTab, title: 'Scheduling & In-App Reminders', category: 'E. Scheduling', description: 'Default queue priority, clock synchronization, advance notification lead times', keywords: ['scheduling', 'schedule', 'priority', 'reminder', 'lead time', 'minutes', 'timezone', 'in-app', 'due now'] },
+    { id: 'sharing' as SettingsSubTab, title: 'Sharing Workflow & Order', category: 'F. Sharing', description: 'Pre-launch confirmations, manual completion verification, destination sequence', keywords: ['sharing', 'share', 'order', 'sequence', 'confirm', 'completion', 'published', 'open platform', 'sheet'] },
+    { id: 'media' as SettingsSubTab, title: 'Media Handling & Cache Controls', category: 'G. Media', description: 'Preview dimensions, storage constraints, and temporary cache purge', keywords: ['media', 'preview', 'downloadable', 'size', 'cache', 'clear media cache', 'video', 'image', 'blobs'] },
+    { id: 'notifications' as SettingsSubTab, title: 'Notification & Alert Center', category: 'H. Notifications', description: 'In-app toasts, queue alarms, and native build status info', keywords: ['notification', 'notifications', 'queue reminders', 'alerts', 'share session', 'native', 'android', 'web preview'] },
+    { id: 'backup' as SettingsSubTab, title: 'Data Backup & Recovery', category: 'I. Data & Backup', description: 'Export JSON project, restore with merge conflict check, and Google Drive', keywords: ['backup', 'data', 'export', 'import', 'restore', 'recovery copy', 'integrity check', 'repair', 'google drive'] },
+    { id: 'storage' as SettingsSubTab, title: 'Storage & Cache', category: 'Storage & Cache', description: 'Media cache retention, history retention, daily UTC cleanup schedule, and Clean Now', keywords: ['storage', 'cache', 'media cache', 'history retention', 'clean now', 'clear media cache', 'cleanup time', 'utc', '00:00 utc', 'keep 7 days', 'automatic cleanup'] },
+    { id: 'about' as SettingsSubTab, title: 'About & Subsystems Status', category: 'J. About', description: 'Version number, schema v3, APK readiness, and feature checklist', keywords: ['about', 'version', 'data schema', 'build', 'features', 'cross-posting', 'news hunter', 'apk'] },
+    { id: 'accounts' as SettingsSubTab, title: 'Social Media Accounts', category: 'Destinations', description: 'Configure handles and pages for Facebook, Instagram, TikTok, YouTube, X, WhatsApp', keywords: ['accounts', 'facebook', 'instagram', 'tiktok', 'youtube', 'twitter', 'whatsapp', 'pages', 'profiles'] },
+    { id: 'groups' as SettingsSubTab, title: 'Posting Groups', category: 'Destinations', description: 'Bundle social destinations into one-tap posting groups', keywords: ['groups', 'destinations', 'posting groups', 'bundle', 'manage groups'] },
+    { id: 'health' as SettingsSubTab, title: 'App Health Check', category: 'Diagnostics', description: 'Audit local data, account bindings, and missing destinations', keywords: ['health', 'system health', 'check', 'diagnostics', 'local data', 'repair'] },
+    { id: 'rss_sources' as SettingsSubTab, title: 'RSS Feeds & Auto Hunt', category: 'News Engine', description: 'Curated RSS source list, feed connectivity tester, and schedule intervals', keywords: ['rss', 'sources', 'feeds', 'auto hunt', 'interval', 'scrape'] }
+  ], []);
+
+  const searchResults = useMemo(() => {
+    if (!searchQuery.trim()) return [];
+    const q = searchQuery.toLowerCase().trim();
+    return SEARCHABLE_SETTINGS.filter(item => 
+      item.title.toLowerCase().includes(q) ||
+      item.category.toLowerCase().includes(q) ||
+      item.description.toLowerCase().includes(q) ||
+      item.keywords.some(k => k.toLowerCase().includes(q))
+    );
+  }, [searchQuery, SEARCHABLE_SETTINGS]);
 
   // RSS Sources Manager State
   const [rssSources, setRssSources] = useState<NewsRssSource[]>(() => loadNewsSources());
@@ -292,105 +371,154 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   };
 
   return (
-    <div className="space-y-6 pb-24 animate-fadeIn">
+    <div className="space-y-5 pb-24 animate-fadeIn">
+      {/* Title & Subtitle */}
       <div>
-        <h1 className="text-xl font-bold text-slate-900 dark:text-white">Settings & Accounts</h1>
-        <p className="text-xs text-slate-500 dark:text-slate-400">
-          Manage social media account destinations, Google Drive sync, timezones, and system alerts
+        <h1 className="text-xl font-bold text-slate-900 dark:text-white">Settings & Control Center</h1>
+        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+          Centralized controls for platform destinations, AI generation, news syndication, scheduling, and data backups
         </p>
       </div>
 
-      {/* Sub tabs */}
-      <div className="flex gap-1.5 p-1 bg-slate-100 dark:bg-slate-800/80 rounded-2xl overflow-x-auto">
-        <button
-          onClick={() => setActiveSubTab('accounts')}
-          className={`flex-1 min-w-[65px] py-2 rounded-xl text-xs font-semibold transition-all ${
-            activeSubTab === 'accounts'
-              ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm'
-              : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
-          }`}
-        >
-          Accounts
-        </button>
-        <button
-          onClick={() => setActiveSubTab('groups')}
-          className={`flex-1 min-w-[65px] py-2 rounded-xl text-xs font-semibold transition-all flex items-center justify-center gap-1 ${
-            activeSubTab === 'groups'
-              ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm'
-              : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
-          }`}
-        >
-          <span>Groups</span>
-          <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-indigo-100 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 font-bold">
-            {socialGroups.length}
-          </span>
-        </button>
-        <button
-          onClick={() => setActiveSubTab('general')}
-          className={`flex-1 min-w-[65px] py-2 rounded-xl text-xs font-semibold transition-all ${
-            activeSubTab === 'general'
-              ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm'
-              : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
-          }`}
-        >
-          General
-        </button>
-        <button
-          id="tab-health-check"
-          onClick={() => setActiveSubTab('health')}
-          className={`flex-1 min-w-[75px] py-2 rounded-xl text-xs font-semibold transition-all flex items-center justify-center gap-1 ${
-            activeSubTab === 'health'
-              ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm'
-              : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
-          }`}
-        >
-          <Shield className="w-3.5 h-3.5 text-indigo-500" />
-          <span>Health</span>
-        </button>
-        <button
-          id="tab-rss-sources"
-          onClick={() => setActiveSubTab('rss_sources')}
-          className={`flex-1 min-w-[75px] py-2 rounded-xl text-xs font-semibold transition-all flex items-center justify-center gap-1 ${
-            activeSubTab === 'rss_sources'
-              ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm'
-              : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
-          }`}
-        >
-          <Radio className="w-3.5 h-3.5 text-indigo-500" />
-          <span>News Hunter</span>
-        </button>
-        <button
-          id="tab-data-backup"
-          onClick={() => setActiveSubTab('backup')}
-          className={`flex-1 min-w-[85px] py-2 rounded-xl text-xs font-semibold transition-all flex items-center justify-center gap-1 ${
-            activeSubTab === 'backup'
-              ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm'
-              : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
-          }`}
-        >
-          <Database className="w-3.5 h-3.5 text-indigo-500" />
-          <span>Data & Backup</span>
-        </button>
-        <button
-          onClick={() => setActiveSubTab('notifications')}
-          className={`flex-1 min-w-[65px] py-2 rounded-xl text-xs font-semibold transition-all ${
-            activeSubTab === 'notifications'
-              ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm'
-              : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
-          }`}
-        >
-          Notifications
-        </button>
-        <button
-          onClick={() => setActiveSubTab('about')}
-          className={`flex-1 min-w-[65px] py-2 rounded-xl text-xs font-semibold transition-all ${
-            activeSubTab === 'about'
-              ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm'
-              : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
-          }`}
-        >
-          About
-        </button>
+      {/* Requirement #16: Settings Search Field */}
+      <div className="space-y-2">
+        <div className="relative">
+          <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder={t('settings.search_placeholder', settings.language, 'Search Settings (e.g. AI, timezone, notification, backup, media, language, hashtags)...')}
+            className="w-full pl-10 pr-9 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-xs"
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+
+        {/* Real-time Search Results Quick-Jump Panel */}
+        {searchQuery.trim() && (
+          <div className="p-3 bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-900/60 rounded-2xl shadow-lg space-y-2 animate-fadeIn">
+            <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 flex items-center justify-between">
+              <span>Matching Settings ({searchResults.length})</span>
+              <span className="text-[10px]">Tap to open section</span>
+            </div>
+            {searchResults.length === 0 ? (
+              <div className="py-2 text-center text-xs text-slate-400">
+                No matching settings found for "{searchQuery}"
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-56 overflow-y-auto pr-1">
+                {searchResults.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => {
+                      setActiveSubTab(item.id);
+                      setSearchQuery('');
+                    }}
+                    className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 hover:border-indigo-500 hover:bg-indigo-50/50 dark:hover:bg-indigo-950/40 text-left transition-all flex flex-col gap-0.5"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-900 dark:text-white">
+                        {item.title}
+                      </span>
+                      <span className="text-[10px] font-semibold px-1.5 py-0.2 rounded bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300">
+                        {item.category}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-1">
+                      {item.description}
+                    </p>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Requirement #15: Real Subsystems App Status Card */}
+      <AppStatusHeader
+        settings={settings}
+        userAccounts={userAccounts}
+        isDriveConnected={isDriveConnected}
+        plan={planState.plan}
+        onOpenSubscription={() => setActiveSubTab('subscription')}
+      />
+
+      {/* Settings Navigation Tabs Bar */}
+      <div className="space-y-1.5">
+        <div className="flex items-center justify-between text-[11px] font-semibold text-slate-400 uppercase tracking-wider px-1">
+          <span>Settings Sections</span>
+          <span>11 Modules</span>
+        </div>
+
+        {/* Primary Settings Sections (A through J + Subscription) */}
+        <div className="flex gap-1.5 p-1 bg-slate-100 dark:bg-slate-800/80 rounded-2xl overflow-x-auto scrollbar-none">
+          {[
+            { id: 'general', label: 'A. General' },
+            { id: 'subscription', label: '★ Plan & Usage' },
+            { id: 'content', label: 'B. Content' },
+            { id: 'news_hunter', label: 'C. News Hunter' },
+            { id: 'ai', label: 'D. AI' },
+            { id: 'scheduling', label: 'E. Scheduling' },
+            { id: 'sharing', label: 'F. Sharing' },
+            { id: 'media', label: 'G. Media' },
+            { id: 'notifications', label: 'H. Alerts' },
+            { id: 'backup', label: 'I. Data & Backup' },
+            { id: 'about', label: 'J. About' }
+          ].map((tab) => {
+            const isActive = activeSubTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveSubTab(tab.id as SettingsSubTab)}
+                className={`py-1.5 px-3 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
+                  isActive
+                    ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                {tab.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Auxiliary Destination & Management Tabs */}
+        <div className="flex gap-1.5 p-1 bg-slate-100/70 dark:bg-slate-800/50 rounded-2xl overflow-x-auto scrollbar-none">
+          {[
+            { id: 'accounts', label: 'Accounts' },
+            { id: 'groups', label: `Groups (${socialGroups.length})` },
+            { id: 'storage', label: 'Storage & Cache' },
+            { id: 'health', label: 'System Health' },
+            { id: 'rss_sources', label: `RSS Feeds (${rssSources.length})` }
+          ].map((tab) => {
+            const isActive = activeSubTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveSubTab(tab.id as SettingsSubTab)}
+                className={`py-1.5 px-3 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
+                  isActive
+                    ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs'
+                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                {tab.label}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* SUB-TAB 1: SOCIAL ACCOUNTS */}
@@ -843,84 +971,95 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         </div>
       )}
 
-      {/* SUB-TAB 3: GENERAL SETTINGS */}
+      {/* SECTION A: GENERAL SETTINGS */}
       {activeSubTab === 'general' && (
-        <div className="space-y-4">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 space-y-4 shadow-sm">
-            {/* Timezone */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                <Clock className="w-3.5 h-3.5 text-indigo-500" />
-                Default Timezone
-              </label>
-              <select
-                value={settings.timezone}
-                onChange={(e) => onUpdateSettings({ timezone: e.target.value })}
-                className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-xs text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
-              >
-                <option value="Asia/Jakarta">Asia/Jakarta (GMT+7) - Default</option>
-                <option value="Asia/Makassar">Asia/Makassar (GMT+8)</option>
-                <option value="Asia/Jayapura">Asia/Jayapura (GMT+9)</option>
-                <option value="UTC">UTC (GMT+0)</option>
-                <option value="America/New_York">America/New_York (EST)</option>
-              </select>
-            </div>
+        <GeneralSettingsSection
+          settings={settings}
+          onUpdateSettings={onUpdateSettings}
+        />
+      )}
 
-            {/* Language */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                <Globe className="w-3.5 h-3.5 text-indigo-500" />
-                Language
-              </label>
-              <select
-                value={settings.language}
-                onChange={(e) => onUpdateSettings({ language: e.target.value })}
-                className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-xs text-slate-900 dark:text-white"
-              >
-                <option value="en">English (US)</option>
-                <option value="id">Bahasa Indonesia</option>
-              </select>
-            </div>
+      {/* SECTION: SUBSCRIPTION & PLAN */}
+      {activeSubTab === 'subscription' && (
+        <SubscriptionPlanSection
+          plan={planState.plan}
+          subscription={planState.subscription}
+          usage={planState.usage}
+          limits={planState.limits}
+          onSelectFreePlan={planState.selectFreePlan}
+          onSetTestPlan={planState.setTestPlan}
+          onToggleOwnerMode={planState.toggleOwnerMode}
+          onRefreshPlan={planState.refreshPlan}
+          currentAccountsCount={
+            (userAccounts.facebook_page?.length || 0) +
+            (userAccounts.facebook_profile?.length || 0) +
+            (userAccounts.instagram?.length || 0) +
+            (userAccounts.tiktok?.length || 0) +
+            (userAccounts.youtube?.length || 0) +
+            (userAccounts.twitter?.length || 0) +
+            (userAccounts.whatsapp?.length || 0)
+          }
+          currentGroupsCount={socialGroups.length}
+          currentQueueCount={currentQueueCount}
+          currentScheduledCount={currentScheduledCount}
+        />
+      )}
 
-            {/* Theme Toggle */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                <Moon className="w-3.5 h-3.5 text-indigo-500" />
-                Appearance
-              </label>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  onClick={() => onUpdateSettings({ theme: 'light' })}
-                  className={`py-2 px-3 rounded-xl border text-xs font-semibold flex items-center justify-center gap-2 ${
-                    settings.theme === 'light'
-                      ? 'border-indigo-500 bg-indigo-50/50 text-indigo-600'
-                      : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
-                  }`}
-                >
-                  <Sun className="w-3.5 h-3.5" /> Light Mode
-                </button>
-                <button
-                  onClick={() => onUpdateSettings({ theme: 'dark' })}
-                  className={`py-2 px-3 rounded-xl border text-xs font-semibold flex items-center justify-center gap-2 ${
-                    settings.theme === 'dark'
-                      ? 'border-indigo-500 bg-indigo-950/40 text-indigo-400'
-                      : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
-                  }`}
-                >
-                  <Moon className="w-3.5 h-3.5" /> Dark Mode
-                </button>
-              </div>
-            </div>
-          </div>
+      {/* SECTION B: CONTENT SETTINGS */}
+      {activeSubTab === 'content' && (
+        <ContentSettingsSection
+          settings={settings}
+          onUpdateSettings={onUpdateSettings}
+        />
+      )}
 
-          {/* APP HEALTH CHECK SECTION IN GENERAL */}
-          <AppHealthCheckSection
-            userAccounts={userAccounts}
-            socialGroups={socialGroups}
-            drafts={drafts}
-            history={history}
-          />
-        </div>
+      {/* SECTION C: NEWS HUNTER SETTINGS */}
+      {activeSubTab === 'news_hunter' && (
+        <NewsHunterSettingsSection
+          settings={settings}
+          onUpdateSettings={onUpdateSettings}
+          onNavigateToRssSources={() => setActiveSubTab('rss_sources')}
+        />
+      )}
+
+      {/* SECTION D: AI SETTINGS */}
+      {activeSubTab === 'ai' && (
+        <AiSettingsSection
+          settings={settings}
+          onUpdateSettings={onUpdateSettings}
+        />
+      )}
+
+      {/* SECTION E: SCHEDULING SETTINGS */}
+      {activeSubTab === 'scheduling' && (
+        <SchedulingSettingsSection
+          settings={settings}
+          onUpdateSettings={onUpdateSettings}
+        />
+      )}
+
+      {/* SECTION F: SHARING SETTINGS */}
+      {activeSubTab === 'sharing' && (
+        <SharingSettingsSection
+          settings={settings}
+          onUpdateSettings={onUpdateSettings}
+        />
+      )}
+
+      {/* SECTION G: MEDIA SETTINGS */}
+      {activeSubTab === 'media' && (
+        <MediaSettingsSection
+          settings={settings}
+          onUpdateSettings={onUpdateSettings}
+        />
+      )}
+
+      {/* STORAGE & CACHE SECTION */}
+      {activeSubTab === 'storage' && (
+        <StorageManagementSection
+          settings={settings}
+          onUpdateSettings={onUpdateSettings}
+        />
       )}
 
       {/* SUB-TAB: APP HEALTH CHECK DEDICATED */}
@@ -1708,69 +1847,35 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         </div>
       )}
 
-      {/* SUB-TAB: NOTIFICATION SETTINGS & EXPO GO COMPATIBILITY */}
+      {/* SECTION H: NOTIFICATION SETTINGS */}
       {activeSubTab === 'notifications' && (
-        <div className="space-y-4">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 space-y-4 shadow-sm">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
-                  <Bell className="w-4 h-4 text-indigo-500" />
-                  Scheduled Post Reminders
-                </div>
-                <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                  Notify when a scheduled post is ready to be shared
-                </div>
-              </div>
-              <input
-                type="checkbox"
-                checked={settings.notificationEnabled}
-                onChange={(e) => onUpdateSettings({ notificationEnabled: e.target.checked })}
-                className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300"
-              >
-              </input>
-            </div>
+        <NotificationSettingsSection
+          settings={settings}
+          onUpdateSettings={onUpdateSettings}
+        />
+      )}
 
-            {/* Expo Go Status Box */}
-            <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 space-y-1.5 text-xs text-amber-900 dark:text-amber-200">
-              <div className="flex items-center gap-2 font-bold">
-                <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
-                Expo Go Notice (SDK 53+):
-              </div>
-              <p className="leading-relaxed">
-                Remote push notifications require a development build. When running in Expo Go on Android, push token initialization is automatically bypassed to prevent crashes.
-              </p>
-              <div className="text-[11px] text-amber-800/80 dark:text-amber-300/80 pt-1">
-                Status: <span className="font-semibold">Local in-app reminders & timers active. Remote push gracefully disabled.</span>
-              </div>
-            </div>
-          </div>
+      {/* SECTION I: DATA & BACKUP */}
+      {activeSubTab === 'backup' && (
+        <div className="space-y-4">
+          <StorageManagementSection
+            settings={settings}
+            onUpdateSettings={onUpdateSettings}
+          />
+          <DataBackupSection onReloadAllData={onReloadAllData} />
         </div>
       )}
 
-      {/* SUB-TAB: DATA & BACKUP */}
-      {activeSubTab === 'backup' && (
-        <DataBackupSection onReloadAllData={onReloadAllData} />
-      )}
-
-      {/* SUB-TAB 4: ABOUT */}
+      {/* SECTION J: ABOUT */}
       {activeSubTab === 'about' && (
         <div className="space-y-4">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 space-y-3 shadow-sm text-xs leading-relaxed text-slate-600 dark:text-slate-300">
-            <div className="flex items-center gap-2 font-bold text-sm text-slate-900 dark:text-white">
-              <Info className="w-4 h-4 text-indigo-500" />
-              About Social Share Scheduler
-            </div>
-            <p>
-              An Android-first mobile application allowing users to create ONE social media post and share across multiple platforms manually from one place.
-            </p>
-            <div className="space-y-1 pt-1 text-[11px] text-slate-500 dark:text-slate-400">
-              <div>• Version: 1.0.0 (MVP Build)</div>
-              <div>• Supported: Facebook, Facebook Fan Page, YouTube Shorts, Instagram, TikTok, X (Twitter)</div>
-              <div>• Google Drive: Google Workspace integration enabled</div>
-              <div>• Native Android: ACTION_SEND & Deep link intent workflows</div>
-            </div>
-          </div>
+          <AboutSettingsSection />
+          <AppHealthCheckSection
+            userAccounts={userAccounts}
+            socialGroups={socialGroups}
+            drafts={drafts}
+            history={history}
+          />
         </div>
       )}
     </div>

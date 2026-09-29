@@ -25,6 +25,11 @@ import {
 import { PLATFORMS } from '../data/platforms';
 import { loadNewsSources, calculateHypeScore, clusterArticles, loadSavedNewsLibrary } from './newsEngine';
 import { DEFAULT_RSS_SOURCES, NewsArticle } from '../types';
+import { runProductionSecurityAudit } from './securityAudit';
+import { entitlementService } from '../services/entitlementService';
+import { accountService } from '../services/accountService';
+import { dataService } from '../services/dataService';
+import { subscriptionService } from '../services/subscriptionService';
 
 export interface HealthCheckSubCheck {
   name: string;
@@ -769,6 +774,86 @@ export async function runFullAppHealthCheck(context: {
       passed,
       problem: passed ? undefined : 'News Hunter validation failed.',
       recommendedFix: passed ? undefined : 'Verify RSS sources and local news cache in Settings.',
+      subchecks
+    });
+  }
+
+  // -------------------------------------------------------------
+  // 11. PRODUCTION SECURITY & API ARCHITECTURE AUDIT
+  // -------------------------------------------------------------
+  {
+    const subchecks: HealthCheckSubCheck[] = [];
+    const auditReport = runProductionSecurityAudit();
+
+    for (const finding of auditReport.clientSecretFindings) {
+      subchecks.push({
+        name: `Client Secret Audit: ${finding.target.replace('_', ' ')}`,
+        passed: finding.passed,
+        details: finding.details
+      });
+    }
+
+    const secretProvidersProtected = auditReport.providers
+      .filter(p => p.requiresSecret)
+      .every(p => p.requiresBackend);
+
+    subchecks.push({
+      name: 'Private Credential Backend Isolation (Categories A–E)',
+      passed: secretProvidersProtected,
+      details: `${auditReport.providers.length} providers classified (${auditReport.classificationSummary.D_requiresSecretCredential} secret-backed via server proxy, 0 keys in client APK)`
+    });
+
+    const entitlementSnap = entitlementService.getEntitlements();
+    const adapterInfo = accountService.getAdapterInfo();
+    const entitlementGuardOk =
+      Boolean(entitlementSnap.user.userId) &&
+      ['FREE', 'PRO', 'ADMIN_TEST'].includes(entitlementSnap.plan) &&
+      (!entitlementSnap.isVerifiedServerEntitlement || adapterInfo.isProductionBackend);
+
+    subchecks.push({
+      name: 'Centralized Account & Entitlement Authority',
+      passed: entitlementGuardOk,
+      details: `Account: ${entitlementSnap.accountStatusLabel} | Plan: ${entitlementSnap.plan} | Source: ${entitlementSnap.entitlementSource}`
+    });
+
+    const syncStatus = dataService.getSyncStatus();
+    const migrationReport = dataService.prepareGuestToAccountMigration();
+    const dataFoundationOk =
+      Boolean(syncStatus.deviceId) &&
+      syncStatus.serverEntitlementEndpointReady &&
+      migrationReport.readyForMigration &&
+      migrationReport.preservesLocalCopy;
+
+    subchecks.push({
+      name: 'Central Data Repository & Cloud Migration Readiness',
+      passed: dataFoundationOk,
+      details: `Mode: ${syncStatus.syncMode} | State: ${syncStatus.syncState} | Local items ready for cloud migration: ${migrationReport.totalRecordsToMigrate}`
+    });
+
+    const billingArch = subscriptionService.getBillingArchitectureSummary();
+    const paymentFoundationOk =
+      Boolean(billingArch.monthlySkuOrPriceId) &&
+      Boolean(billingArch.yearlySkuOrPriceId) &&
+      ['android_google_play', 'web_paddle'].includes(billingArch.activePlatformTarget) &&
+      typeof subscriptionService.createCheckout === 'function' &&
+      typeof subscriptionService.getSubscriptionStatus === 'function' &&
+      typeof subscriptionService.restoreSubscription === 'function' &&
+      typeof subscriptionService.cancelSubscription === 'function' &&
+      typeof subscriptionService.openManageSubscription === 'function';
+
+    subchecks.push({
+      name: 'Subscription Service (Google Play Billing + Paddle MoR)',
+      passed: paymentFoundationOk,
+      details: `Active Target: ${billingArch.activeProviderDisplayName} | Connected: ${billingArch.billingConnected ? 'Yes' : 'Not Connected (Honest Mode)'}`
+    });
+
+    const passed = subchecks.every(s => s.passed);
+    components.push({
+      id: 'security_audit',
+      name: 'Security & API Architecture',
+      passed,
+      problem: passed ? undefined : 'Client-side secret audit or provider isolation check reported a warning.',
+      recommendedFix: passed ? undefined : 'Ensure all secret-requiring services route through apiService and server proxy.',
       subchecks
     });
   }

@@ -18,6 +18,7 @@ import {
   getAllDestinations 
 } from '../utils/socialAccounts';
 import { GroupEditModal } from './GroupEditModal';
+import { usePlanContext } from '../contexts/PlanContext';
 
 interface GroupsManagerProps {
   groups: SocialGroup[];
@@ -38,6 +39,7 @@ export const GroupsManager: React.FC<GroupsManagerProps> = ({
   onDuplicateGroup,
   onSelectGroupForPost
 }) => {
+  const { canUseFeature, openUpgradeModal } = usePlanContext();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingGroup, setEditingGroup] = useState<SocialGroup | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -47,6 +49,11 @@ export const GroupsManager: React.FC<GroupsManagerProps> = ({
   const allDestinations = getAllDestinations(normalizedAccounts);
 
   const handleOpenCreate = () => {
+    const check = canUseFeature('posting_groups', groups.length);
+    if (!check.allowed) {
+      openUpgradeModal('Posting Groups', check.reason || 'Posting group limit reached for your plan.');
+      return;
+    }
     setEditingGroup(null);
     setIsModalOpen(true);
   };
@@ -65,6 +72,11 @@ export const GroupsManager: React.FC<GroupsManagerProps> = ({
   };
 
   const handleDuplicate = (groupId: string, name: string) => {
+    const check = canUseFeature('posting_groups', groups.length);
+    if (!check.allowed) {
+      openUpgradeModal('Posting Groups', check.reason || 'Posting group limit reached for your plan.');
+      return;
+    }
     onDuplicateGroup(groupId);
     setCopiedToast(`Duplicated "${name}"`);
     setTimeout(() => setCopiedToast(null), 2500);

@@ -164,14 +164,98 @@ export interface SocialAccountStatus {
   avatarUrl?: string;
 }
 
+export interface ContentSettings {
+  defaultContentType: 'post' | 'reel' | 'video' | 'shorts';
+  hashtagLimits: {
+    facebook: number;
+    instagram: number;
+    tiktok: number;
+    youtube: number;
+    twitter: number;
+  };
+}
+
+export interface NewsHunterGlobalSettings {
+  newsRegionMode?: 'auto' | 'manual';
+  manualCountryCode?: string;
+  supplementWithGlobal?: boolean;
+  rewriteLanguage?: string;
+  defaultCategories: string[];
+  defaultHypeFilter: 'all' | '50' | '70' | '85';
+  defaultMediaFilter: 'all' | 'images' | 'videos' | 'none' | 'downloadable';
+  defaultSorting: 'hype' | 'newest' | 'sources';
+  autoHuntOnStartup: boolean;
+}
+
+export interface AiControlSettings {
+  assistantEnabled: boolean;
+  aiRewriteEnabled: boolean;
+  newsRewriteEnabled: boolean;
+  writingLanguage: 'id' | 'en';
+  writingStyle: 'Natural' | 'Informative' | 'Casual' | 'News' | 'Social Media';
+}
+
+export interface SchedulingControlSettings {
+  defaultTimezone: string;
+  defaultPriority: 'normal' | 'high' | 'low';
+  reminderMinutesBefore: 5 | 10 | 15 | 30 | 60 | number;
+}
+
+export interface SharingControlSettings {
+  confirmBeforeOpen: boolean;
+  confirmCompletionAfterOpen: boolean;
+  defaultPlatformOrder: PlatformId[];
+}
+
+export interface MediaControlSettings {
+  autoPreviewMedia: boolean;
+  preferDownloadable: boolean;
+  maxPreviewSize: 'small' | 'medium' | 'large';
+}
+
+export interface NotificationControlSettings {
+  masterEnabled: boolean;
+  queueReminders: boolean;
+  newsHunterAlerts: boolean;
+  shareSessionReminders: boolean;
+}
+
+export type MediaCacheRetentionDays = 1 | 3 | 7 | 30 | 0; // 0 = never automatically delete
+export type HistoryRetentionDays = 7 | 30 | 90 | 180 | 365 | 0; // 0 = never automatically delete
+
+export interface StorageCacheSettings {
+  autoMediaCleanupEnabled: boolean;
+  mediaRetentionDays: MediaCacheRetentionDays;
+  autoHistoryCleanupEnabled: boolean;
+  historyRetentionDays: HistoryRetentionDays;
+  cleanupTimeUtc: string; // Default: '00:00' (UTC)
+  lastAutomaticCleanupUtc?: string | null;
+}
+
+export type LanguageMode = 'automatic' | 'manual';
+
 export interface AppSettings {
-  language: string;
+  language: string; // Effective active UI language code (e.g. 'en', 'id', 'ja', etc.)
+  languageMode?: LanguageMode; // 'automatic' (detect browser) or 'manual' (explicit choice)
+  selectedLanguage?: string; // Stored user selection when in manual mode
   timezone: string;
   notificationEnabled: boolean;
   isExpoGoMode: boolean; // Expo Go compatibility flag
   hasDevBuild: boolean;
   defaultHashtags: string[];
   theme: 'dark' | 'light' | 'system';
+
+  // Global App Settings & Control Center Extensions
+  appName?: string;
+  defaultLandingPage?: 'home' | 'news' | 'create';
+  contentSettings?: ContentSettings;
+  newsHunterSettings?: NewsHunterGlobalSettings;
+  aiSettings?: AiControlSettings;
+  schedulingSettings?: SchedulingControlSettings;
+  sharingSettings?: SharingControlSettings;
+  mediaSettings?: MediaControlSettings;
+  notificationControlSettings?: NotificationControlSettings;
+  storageCacheSettings?: StorageCacheSettings;
 }
 
 export interface GoogleDriveFile {
@@ -367,11 +451,14 @@ export interface NewsMediaItem {
 
 export interface NewsRssSource {
   id: string;
+  countryCode?: string; // 'ID', 'US', 'GB', 'JP', 'GLOBAL', etc.
+  language?: string; // 'id', 'en', 'ja', 'de', 'fr', 'es', etc.
   name: string;
   url: string;
   category: string;
   active: boolean;
   priority: 'high' | 'medium' | 'low';
+  isGlobal?: boolean;
   lastTested?: string;
   lastStatus?: 'ok' | 'error' | 'untested';
   errorMessage?: string;
@@ -384,6 +471,9 @@ export interface NewsArticle {
   url: string;
   source: string;
   sourceId?: string;
+  countryCode?: string;
+  countryName?: string;
+  sourceLanguage?: string;
   publishedAt: string;
   summary: string;
   imageUrl?: string | null;
@@ -449,6 +539,9 @@ export interface SavedNewsItem {
   url: string;
   source: string;
   category: string;
+  countryCode?: string;
+  countryName?: string;
+  sourceLanguage?: string;
   savedAt: string;
   publishedAt: string;
   imageUrl?: string | null;
@@ -459,6 +552,10 @@ export interface SavedNewsItem {
 }
 
 export interface NewsHunterSettings {
+  newsRegionMode?: 'auto' | 'manual';
+  manualCountryCode?: string;
+  supplementWithGlobal?: boolean;
+  rewriteLanguage?: string;
   defaultCategory: string;
   discoveryMode: 'rss_only' | 'rss_web';
   xTrendingEnabled: boolean;
@@ -533,6 +630,10 @@ export const DEFAULT_AUTO_HUNT_SETTINGS: AutoHuntSettings = {
 };
 
 export const DEFAULT_NEWS_HUNTER_SETTINGS: NewsHunterSettings = {
+  newsRegionMode: 'auto',
+  manualCountryCode: 'GLOBAL',
+  supplementWithGlobal: true,
+  rewriteLanguage: 'same_as_news',
   defaultCategory: 'All Categories',
   discoveryMode: 'rss_web',
   xTrendingEnabled: false,

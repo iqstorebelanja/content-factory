@@ -28,37 +28,36 @@ import { SettingsScreen } from './components/SettingsScreen';
 import { GoogleDriveModal } from './components/GoogleDriveModal';
 import { BottomNavigation, NavigationTab } from './components/BottomNavigation';
 import { useGoogleDrive } from './hooks/useGoogleDrive';
-import { useAndroidBackHandler } from './hooks/useAndroidBackHandler';
 import { getNotificationRuntimeStatus, schedulePostReminder } from './utils/notificationHelper';
 import { getActiveShareSession, clearActiveShareSession } from './utils/shareEngine';
 import { getUnviewedStoriesCount, executeAutoHuntRun, loadAutoHuntSettings } from './utils/newsEngine';
+import { ensureAppSettings, DEFAULT_STORAGE_CACHE_SETTINGS } from './utils/appSettingsDefaults';
+import { executeStorageCleanup, isDueForAutomaticCleanup } from './utils/storageCleanupEngine';
 import { Bell, Share2 } from 'lucide-react';
+import { PlanProvider } from './contexts/PlanContext';
+import { PlanBadge } from './components/PlanBadge';
+import { SettingsSubTab } from './components/SettingsScreen';
+import { dataService } from './services/dataService';
 
-export default function App() {
-  const [activeTab, setActiveTab] = useState<NavigationTab>('home');
+interface AppContentProps {
+  settingsSubTab: SettingsSubTab;
+  setSettingsSubTab: React.Dispatch<React.SetStateAction<SettingsSubTab>>;
+  activeTab: NavigationTab;
+  setActiveTab: React.Dispatch<React.SetStateAction<NavigationTab>>;
+}
+
+function AppContent({
+  settingsSubTab,
+  setSettingsSubTab,
+  activeTab,
+  setActiveTab
+}: AppContentProps) {
   const [confirmingPost, setConfirmingPost] = useState<SocialPost | null>(null);
   const [editingDraft, setEditingDraft] = useState<SocialPost | null>(null);
   const [isDriveModalOpen, setIsDriveModalOpen] = useState(false);
   const [inAppAlert, setInAppAlert] = useState<{ title: string; message: string } | null>(null);
   const [activeSession, setActiveSession] = useState(() => getActiveShareSession());
   const [newStoriesCount, setNewStoriesCount] = useState<number>(() => getUnviewedStoriesCount());
-
-  // Android System Back Button & Escape key navigation handler (Requirement #22)
-  useAndroidBackHandler({
-    hasOpenModal: isDriveModalOpen,
-    onCloseModal: () => setIsDriveModalOpen(false),
-    isSubscreen: Boolean(confirmingPost) || (activeTab === 'create' && Boolean(editingDraft)),
-    onExitSubscreen: () => {
-      if (confirmingPost) {
-        setConfirmingPost(null);
-      } else if (editingDraft) {
-        setEditingDraft(null);
-        setActiveTab('home');
-      }
-    },
-    activeTab,
-    onGoHome: () => setActiveTab('home')
-  });
 
   // Periodically refresh activeSession indicator if exists
   useEffect(() => {
@@ -102,38 +101,17 @@ export default function App() {
     return () => clearInterval(timer);
   }, []);
   const [userAccounts, setUserAccounts] = useState<UserSocialAccounts>(() => {
-    const saved = localStorage.getItem('sss_user_accounts');
-    if (saved) {
-      try { return JSON.parse(saved); } catch {}
-    }
-    return DEFAULT_USER_ACCOUNTS;
+    return dataService.getSocialAccounts();
   });
 
   // Settings State
   const [settings, setSettings] = useState<AppSettings>(() => {
-    const saved = localStorage.getItem('sss_settings');
-    if (saved) {
-      try { return JSON.parse(saved); } catch {}
-    }
-    return {
-      language: 'en',
-      timezone: 'Asia/Jakarta',
-      notificationEnabled: true,
-      isExpoGoMode: true, // Expo Go compatibility flag active
-      hasDevBuild: false,
-      defaultHashtags: ['#Jangari', '#Mancing', '#WisataJawaBarat', '#Fishing', '#NgabloeVenture'],
-      theme: 'dark'
-    };
+    return dataService.getUserSettings();
   });
 
   // History State
   const [history, setHistory] = useState<SocialPost[]>(() => {
-    const saved = localStorage.getItem('sss_history');
-    if (saved) {
-      try { return JSON.parse(saved); } catch {}
-    }
-    // Initial sample record matching prompt test case
-    return [
+    return dataService.getPostHistory([
       {
         id: 'sample-post-1',
         title: 'Jangari, Surga Pemancing di Jawa Barat',
@@ -152,35 +130,23 @@ export default function App() {
           whatsapp: { status: 'SHARED', note: 'Sent via WhatsApp chat', updatedAt: new Date().toISOString() }
         }
       }
-    ];
+    ]);
   });
 
   // Drafts State
   const [drafts, setDrafts] = useState<SocialPost[]>(() => {
-    const saved = localStorage.getItem('sss_drafts');
-    if (saved) {
-      try { return JSON.parse(saved); } catch {}
-    }
-    return [];
+    return dataService.getDrafts();
   });
 
   // Content Queue State (Scheduled posts with metadata: status, priority, scheduled date/time)
   const [contentQueue, setContentQueue] = useState<ContentQueueItem[]>(() => {
-    const saved = localStorage.getItem('sss_content_queue');
-    if (saved) {
-      try { return JSON.parse(saved); } catch {}
-    }
-    return SAMPLE_QUEUE_ITEMS;
+    return dataService.getScheduledQueue();
   });
 
   // Social Media Groups State
 
   const [socialGroups, setSocialGroups] = useState<SocialGroup[]>(() => {
-    const saved = localStorage.getItem('sss_social_groups');
-    if (saved) {
-      try { return JSON.parse(saved); } catch {}
-    }
-    return DEFAULT_SOCIAL_GROUPS;
+    return dataService.getPostingGroups();
   });
 
   const [selectedGroupIdForCreate, setSelectedGroupIdForCreate] = useState<string | null>(null);
@@ -195,28 +161,28 @@ export default function App() {
     } else {
       document.documentElement.classList.remove('dark');
     }
-    localStorage.setItem('sss_settings', JSON.stringify(settings));
+    dataService.saveUserSettings(settings);
   }, [settings]);
 
-  // Persist history & drafts & social accounts
+  // Persist history & drafts & social accounts via CentralDataService
   useEffect(() => {
-    localStorage.setItem('sss_history', JSON.stringify(history));
+    dataService.savePostHistory(history);
   }, [history]);
 
   useEffect(() => {
-    localStorage.setItem('sss_drafts', JSON.stringify(drafts));
+    dataService.saveDrafts(drafts);
   }, [drafts]);
 
   useEffect(() => {
-    localStorage.setItem('sss_user_accounts', JSON.stringify(userAccounts));
+    dataService.saveSocialAccounts(userAccounts);
   }, [userAccounts]);
 
   useEffect(() => {
-    localStorage.setItem('sss_social_groups', JSON.stringify(socialGroups));
+    dataService.savePostingGroups(socialGroups);
   }, [socialGroups]);
 
   useEffect(() => {
-    localStorage.setItem('sss_content_queue', JSON.stringify(contentQueue));
+    dataService.saveScheduledQueue(contentQueue);
   }, [contentQueue]);
 
   // Schema preservation check (ensures local data is never overwritten with defaults)
@@ -224,6 +190,39 @@ export default function App() {
     const existingVer = localStorage.getItem('sss_schema_version');
     if (!existingVer) {
       localStorage.setItem('sss_schema_version', DATA_SCHEMA_VERSION.toString());
+    }
+  }, []);
+
+  // Listen for history cleanup updates across windows/components
+  useEffect(() => {
+    const handleHistoryUpdate = () => {
+      try {
+        const raw = localStorage.getItem('sss_history');
+        if (raw) {
+          setHistory(JSON.parse(raw));
+        } else {
+          setHistory([]);
+        }
+      } catch {}
+    };
+    window.addEventListener('sss_history_updated', handleHistoryUpdate);
+    return () => window.removeEventListener('sss_history_updated', handleHistoryUpdate);
+  }, []);
+
+  // Automatic Storage & Cache cleanup on application startup (Requirement #3)
+  useEffect(() => {
+    const storageSettings = settings.storageCacheSettings || DEFAULT_STORAGE_CACHE_SETTINGS;
+    if (isDueForAutomaticCleanup(storageSettings)) {
+      executeStorageCleanup(storageSettings).then(res => {
+        if (res.status === 'success' && res.historyRecordsRemoved > 0) {
+          try {
+            const raw = localStorage.getItem('sss_history');
+            if (raw) setHistory(JSON.parse(raw));
+          } catch {}
+        }
+      }).catch(err => {
+        console.warn('Initial storage cleanup error:', err);
+      });
     }
   }, []);
 
@@ -255,7 +254,17 @@ export default function App() {
 
   // Handle setting updates
   const handleUpdateSettings = (updates: Partial<AppSettings>) => {
-    setSettings(prev => ({ ...prev, ...updates }));
+    setSettings(prev => ({
+      ...prev,
+      ...updates,
+      contentSettings: updates.contentSettings ? { ...(prev.contentSettings || {}), ...updates.contentSettings } as any : prev.contentSettings,
+      newsHunterSettings: updates.newsHunterSettings ? { ...(prev.newsHunterSettings || {}), ...updates.newsHunterSettings } as any : prev.newsHunterSettings,
+      aiSettings: updates.aiSettings ? { ...(prev.aiSettings || {}), ...updates.aiSettings } as any : prev.aiSettings,
+      schedulingSettings: updates.schedulingSettings ? { ...(prev.schedulingSettings || {}), ...updates.schedulingSettings } as any : prev.schedulingSettings,
+      sharingSettings: updates.sharingSettings ? { ...(prev.sharingSettings || {}), ...updates.sharingSettings } as any : prev.sharingSettings,
+      mediaSettings: updates.mediaSettings ? { ...(prev.mediaSettings || {}), ...updates.mediaSettings } as any : prev.mediaSettings,
+      notificationControlSettings: updates.notificationControlSettings ? { ...(prev.notificationControlSettings || {}), ...updates.notificationControlSettings } as any : prev.notificationControlSettings,
+    }));
   };
 
   // Handle user configured social media accounts
@@ -306,8 +315,8 @@ export default function App() {
   };
 
   // User starts creating from scratch
-  const handleStartCreate = (targetDate?: string) => {
-    if (targetDate) {
+  const handleStartCreate = (targetDate?: string | unknown) => {
+    if (typeof targetDate === 'string' && targetDate.trim().length > 0) {
       const scheduledIso = targetDate.includes('T') ? targetDate : `${targetDate}T12:00:00`;
       setEditingDraft({
         id: `draft-${Date.now()}`,
@@ -728,6 +737,13 @@ export default function App() {
             <span>Social Share Scheduler</span>
           </div>
           <div className="flex items-center gap-2 text-[11px]">
+            <PlanBadge 
+              interactive
+              onClick={() => {
+                setSettingsSubTab('subscription');
+                setActiveTab('settings');
+              }}
+            />
             <span>{settings.timezone.replace('Asia/', '')}</span>
           </div>
         </header>
@@ -863,6 +879,7 @@ export default function App() {
                   history={history}
                   onReShare={handleReShare}
                   onDelete={handleDeleteHistory}
+                  onClearHistory={() => setHistory([])}
                   onCreateNew={handleStartCreate}
                   onDuplicate={handleDuplicateHistory}
                   userAccounts={userAccounts}
@@ -889,6 +906,9 @@ export default function App() {
                   drafts={drafts}
                   history={history}
                   onReloadAllData={handleReloadAllData}
+                  initialSubTab={settingsSubTab}
+                  currentQueueCount={contentQueue.length}
+                  currentScheduledCount={contentQueue.filter(q => q.status === 'scheduled').length}
                 />
               )}
             </>
@@ -917,9 +937,41 @@ export default function App() {
           draftsCount={drafts.length}
           newStoriesCount={newStoriesCount}
           queueCount={contentQueue.filter(q => q.status === 'scheduled' || q.status === 'queued').length}
+          language={settings.language}
         />
 
       </div>
     </div>
+  );
+}
+
+export default function App() {
+  const [settingsSubTab, setSettingsSubTab] = useState<SettingsSubTab>('general');
+  const [activeTab, setActiveTab] = useState<NavigationTab>(() => {
+    try {
+      const saved = localStorage.getItem('sss_settings');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed.defaultLandingPage === 'news') return 'news';
+        if (parsed.defaultLandingPage === 'create') return 'create';
+      }
+    } catch {}
+    return 'home';
+  });
+
+  return (
+    <PlanProvider
+      onNavigateToPlans={() => {
+        setSettingsSubTab('subscription');
+        setActiveTab('settings');
+      }}
+    >
+      <AppContent
+        settingsSubTab={settingsSubTab}
+        setSettingsSubTab={setSettingsSubTab}
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+      />
+    </PlanProvider>
   );
 }

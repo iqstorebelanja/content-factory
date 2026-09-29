@@ -9,11 +9,17 @@ import {
   Globe, 
   Play, 
   RefreshCw,
-  Check,
   RotateCcw
 } from 'lucide-react';
-import { NewsRssSource, DEFAULT_RSS_SOURCES } from '../types';
+import { NewsRssSource } from '../types';
 import { testRssSource } from '../utils/newsEngine';
+import { 
+  SUPPORTED_COUNTRIES, 
+  getCountryByCode, 
+  getCategoriesForCountry 
+} from '../data/countries';
+import { CURATED_NEWS_SOURCES } from '../data/curatedNewsSources';
+import { usePlanContext } from '../contexts/PlanContext';
 
 interface NewsSourcesModalProps {
   isOpen: boolean;
@@ -28,33 +34,73 @@ export const NewsSourcesModal: React.FC<NewsSourcesModalProps> = ({
   sources,
   onSaveSources
 }) => {
+  const { plan, canUseFeature, openUpgradeModal } = usePlanContext();
+  const isOwner = plan === 'ADMIN_TEST';
+
+  const [filterCountry, setFilterCountry] = useState<string>('ALL');
   const [editingSource, setEditingSource] = useState<NewsRssSource | null>(null);
   const [isAddingNew, setIsAddingNew] = useState(false);
+
+  // Form states
   const [name, setName] = useState('');
   const [url, setUrl] = useState('');
+  const [countryCode, setCountryCode] = useState('ID');
   const [category, setCategory] = useState('Nasional');
+  const [language, setLanguage] = useState('id');
   const [priority, setPriority] = useState<'high' | 'medium' | 'low'>('high');
+  const [active, setActive] = useState(true);
+
   const [testingId, setTestingId] = useState<string | null>(null);
   const [testResults, setTestResults] = useState<Record<string, { success: boolean; message: string; itemCount?: number; latencyMs?: number }>>({});
 
   if (!isOpen) return null;
 
   const handleStartAdd = () => {
+    if (!isOwner && !canUseFeature('rss_sources').allowed) {
+      openUpgradeModal('Custom RSS Feeds', 'Managing and adding custom RSS news sources beyond the FREE limit requires PRO.');
+      return;
+    }
+
     setIsAddingNew(true);
     setEditingSource(null);
     setName('');
     setUrl('');
-    setCategory('Nasional');
+    const defaultCountry = filterCountry !== 'ALL' ? filterCountry : 'ID';
+    setCountryCode(defaultCountry);
+    const country = getCountryByCode(defaultCountry);
+    const cats = getCategoriesForCountry(defaultCountry);
+    setCategory(cats[0] || 'National');
+    setLanguage(country.defaultLanguage || 'en');
     setPriority('high');
+    setActive(true);
   };
 
   const handleStartEdit = (src: NewsRssSource) => {
+    if (!isOwner && !canUseFeature('rss_sources').allowed) {
+      openUpgradeModal('Custom RSS Feeds', 'Editing news sources beyond the FREE limit requires PRO.');
+      return;
+    }
+
     setEditingSource(src);
     setIsAddingNew(false);
     setName(src.name);
     setUrl(src.url);
+    const cCode = src.countryCode || 'ID';
+    setCountryCode(cCode);
     setCategory(src.category);
+    setLanguage(src.language || 'id');
     setPriority(src.priority);
+    setActive(src.active);
+  };
+
+  const handleCountryChangeInForm = (newCountryCode: string) => {
+    setCountryCode(newCountryCode);
+    const country = getCountryByCode(newCountryCode);
+    setLanguage(country.defaultLanguage);
+    const cats = getCategoriesForCountry(newCountryCode);
+    if (!cats.includes(category)) {
+      setCategory(cats[0] || 'National');
+    }
   };
 
   const handleSaveForm = (e: React.FormEvent) => {
@@ -64,7 +110,17 @@ export const NewsSourcesModal: React.FC<NewsSourcesModalProps> = ({
     if (editingSource) {
       const updated = sources.map(s => 
         s.id === editingSource.id 
-          ? { ...s, name: name.trim(), url: url.trim(), category, priority }
+          ? { 
+              ...s, 
+              name: name.trim(), 
+              url: url.trim(), 
+              countryCode, 
+              category, 
+              language, 
+              priority, 
+              active,
+              isGlobal: countryCode === 'GLOBAL'
+            }
           : s
       );
       onSaveSources(updated);
@@ -74,9 +130,12 @@ export const NewsSourcesModal: React.FC<NewsSourcesModalProps> = ({
         id: `src-${Date.now()}`,
         name: name.trim(),
         url: url.trim(),
+        countryCode,
         category,
+        language,
         priority,
-        active: true
+        active,
+        isGlobal: countryCode === 'GLOBAL'
       };
       onSaveSources([newSource, ...sources]);
       setIsAddingNew(false);
@@ -96,8 +155,8 @@ export const NewsSourcesModal: React.FC<NewsSourcesModalProps> = ({
   };
 
   const handleResetDefaults = () => {
-    if (confirm('Reset to default curated RSS sources list?')) {
-      onSaveSources(DEFAULT_RSS_SOURCES);
+    if (confirm('Reset to default curated RSS sources list (Global & Indonesia)?')) {
+      onSaveSources(CURATED_NEWS_SOURCES);
     }
   };
 
@@ -111,18 +170,14 @@ export const NewsSourcesModal: React.FC<NewsSourcesModalProps> = ({
     setTestingId(null);
   };
 
-  const categoriesList = [
-    'Persib',
-    'Sepakbola',
-    'Nasional',
-    'Hype / Viral',
-    'Internasional',
-    'Teknologi',
-    'Ekonomi',
-    'Lifestyle',
-    'Adventure',
-    'Custom'
-  ];
+  // Filter sources by country
+  const filteredSources = sources.filter(s => {
+    if (filterCountry === 'ALL') return true;
+    const c = (s.countryCode || 'ID').toUpperCase();
+    return c === filterCountry.toUpperCase();
+  });
+
+  const availableFormCategories = Array.from(new Set(getCategoriesForCountry(countryCode).filter(c => c !== 'All Categories')));
 
   return (
     <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
@@ -135,11 +190,16 @@ export const NewsSourcesModal: React.FC<NewsSourcesModalProps> = ({
               <Globe className="w-4 h-4" />
             </div>
             <div>
-              <h2 className="text-sm font-bold text-slate-900 dark:text-white">
-                RSS Sources Manager
+              <h2 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <span>RSS Sources Manager</span>
+                {isOwner && (
+                  <span className="text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 border border-amber-500/20">
+                    Owner Mode
+                  </span>
+                )}
               </h2>
               <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                Configure, enable/disable, and test RSS feed URLs
+                Country-aware news feeds, categories, priority, and testing
               </p>
             </div>
           </div>
@@ -151,12 +211,50 @@ export const NewsSourcesModal: React.FC<NewsSourcesModalProps> = ({
           </button>
         </div>
 
+        {/* Country Filter Bar */}
+        <div className="px-4 py-2.5 bg-slate-50/80 dark:bg-slate-800/40 border-b border-slate-200 dark:border-slate-800 flex items-center gap-2 overflow-x-auto scrollbar-none">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 shrink-0">
+            Region:
+          </span>
+          <button
+            type="button"
+            onClick={() => setFilterCountry('ALL')}
+            className={`px-2.5 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
+              filterCountry === 'ALL'
+                ? 'bg-indigo-600 text-white shadow-sm'
+                : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
+            }`}
+          >
+            All Regions ({sources.length})
+          </button>
+          {SUPPORTED_COUNTRIES.map(c => {
+            const count = sources.filter(s => (s.countryCode || 'ID').toUpperCase() === c.code).length;
+            if (count === 0 && c.code !== 'ID' && c.code !== 'US' && c.code !== 'GLOBAL') return null;
+            return (
+              <button
+                key={c.code}
+                type="button"
+                onClick={() => setFilterCountry(c.code)}
+                className={`px-2 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition-all flex items-center gap-1.5 ${
+                  filterCountry === c.code
+                    ? 'bg-indigo-600 text-white shadow-sm'
+                    : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
+                }`}
+              >
+                <span>{c.flag}</span>
+                <span>{c.code}</span>
+                <span className="text-[10px] opacity-75">({count})</span>
+              </button>
+            );
+          })}
+        </div>
+
         {/* Content */}
         <div className="p-4 overflow-y-auto space-y-4 flex-1">
           {/* Action Bar */}
           <div className="flex items-center justify-between gap-2">
             <div className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-              {sources.length} Configured Sources ({sources.filter(s => s.active).length} Active)
+              {filteredSources.length} Sources ({filteredSources.filter(s => s.active).length} Active)
             </div>
             <div className="flex items-center gap-2">
               <button
@@ -194,6 +292,40 @@ export const NewsSourcesModal: React.FC<NewsSourcesModalProps> = ({
                 </button>
               </div>
 
+              {/* Country & Language */}
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-[11px] font-medium text-slate-600 dark:text-slate-400 block mb-1">
+                    Country / Region
+                  </label>
+                  <select
+                    value={countryCode}
+                    onChange={e => handleCountryChangeInForm(e.target.value)}
+                    className="w-full text-xs px-2.5 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium"
+                  >
+                    {SUPPORTED_COUNTRIES.map(c => (
+                      <option key={c.code} value={c.code}>
+                        {c.flag} {c.name} ({c.code})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-[11px] font-medium text-slate-600 dark:text-slate-400 block mb-1">
+                    Language Code
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={language}
+                    onChange={e => setLanguage(e.target.value.toLowerCase())}
+                    placeholder="id, en, ja, de, es, etc."
+                    className="w-full text-xs px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+              </div>
+
               <div>
                 <label className="text-[11px] font-medium text-slate-600 dark:text-slate-400 block mb-1">
                   Source Name
@@ -201,7 +333,7 @@ export const NewsSourcesModal: React.FC<NewsSourcesModalProps> = ({
                 <input
                   type="text"
                   required
-                  placeholder="e.g. detikJabar, Bola.com, CNN Indonesia"
+                  placeholder="e.g. NPR News, Bola.com, BBC Football"
                   value={name}
                   onChange={e => setName(e.target.value)}
                   className="w-full text-xs px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
@@ -232,9 +364,10 @@ export const NewsSourcesModal: React.FC<NewsSourcesModalProps> = ({
                     onChange={e => setCategory(e.target.value)}
                     className="w-full text-xs px-2.5 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
                   >
-                    {categoriesList.map(cat => (
-                      <option key={cat} value={cat}>{cat}</option>
+                    {availableFormCategories.map((cat, idx) => (
+                      <option key={`src-cat-${cat}-${idx}`} value={cat}>{cat}</option>
                     ))}
+                    <option value="Custom">Custom...</option>
                   </select>
                 </div>
 
@@ -254,19 +387,23 @@ export const NewsSourcesModal: React.FC<NewsSourcesModalProps> = ({
                 </div>
               </div>
 
-              <div className="flex justify-end gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={() => { setIsAddingNew(false); setEditingSource(null); }}
-                  className="px-3 py-1.5 text-xs text-slate-600 dark:text-slate-400"
-                >
-                  Cancel
-                </button>
+              <div className="flex items-center justify-between pt-1">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={active}
+                    onChange={e => setActive(e.target.checked)}
+                    className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500"
+                  />
+                  <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                    Source Enabled / Active
+                  </span>
+                </label>
+
                 <button
                   type="submit"
-                  className="px-4 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 rounded-xl flex items-center gap-1.5 shadow-sm"
+                  className="bg-indigo-600 text-white text-xs font-bold px-4 py-2 rounded-xl shadow-md hover:bg-indigo-500 transition-all"
                 >
-                  <Check className="w-3.5 h-3.5" />
                   Save Source
                 </button>
               </div>
@@ -274,118 +411,129 @@ export const NewsSourcesModal: React.FC<NewsSourcesModalProps> = ({
           )}
 
           {/* Sources List */}
-          <div className="space-y-2.5">
-            {sources.map(src => {
-              const testResult = testResults[src.id];
-              const isTesting = testingId === src.id;
-
-              return (
-                <div
-                  key={src.id}
-                  className={`p-3 rounded-2xl border transition-all ${
-                    src.active
-                      ? 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 shadow-sm'
-                      : 'bg-slate-50 dark:bg-slate-900/40 border-slate-200 dark:border-slate-800/50 opacity-70'
-                  }`}
+          <div className="space-y-2">
+            {filteredSources.length === 0 ? (
+              <div className="p-8 text-center text-xs text-slate-400 border border-dashed border-slate-200 dark:border-slate-800 rounded-2xl space-y-2">
+                <p>No RSS sources found for {filterCountry === 'ALL' ? 'this filter' : filterCountry}.</p>
+                <button
+                  type="button"
+                  onClick={handleStartAdd}
+                  className="text-indigo-600 dark:text-indigo-400 font-bold hover:underline"
                 >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-xs font-bold text-slate-900 dark:text-white truncate">
-                          {src.name}
-                        </span>
-                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
-                          {src.category}
-                        </span>
-                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
-                          src.priority === 'high' 
-                            ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400' 
-                            : 'bg-slate-100 dark:bg-slate-800 text-slate-500'
-                        }`}>
-                          {src.priority}
-                        </span>
+                  + Add First RSS Source
+                </button>
+              </div>
+            ) : (
+              filteredSources.map(src => {
+                const test = testResults[src.id];
+                const country = getCountryByCode(src.countryCode || 'ID');
+
+                return (
+                  <div
+                    key={src.id}
+                    className={`p-3 rounded-2xl border transition-all ${
+                      src.active
+                        ? 'bg-white dark:bg-slate-800/60 border-slate-200 dark:border-slate-700'
+                        : 'bg-slate-50 dark:bg-slate-900/40 border-slate-100 dark:border-slate-800 opacity-60'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                          <span className="text-xs">{country.flag}</span>
+                          <span className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                            {src.name}
+                          </span>
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                            {src.category}
+                          </span>
+                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase ${
+                            src.priority === 'high' 
+                              ? 'bg-rose-50 dark:bg-rose-950/60 text-rose-600' 
+                              : src.priority === 'medium'
+                              ? 'bg-amber-50 dark:bg-amber-950/60 text-amber-600'
+                              : 'bg-slate-100 text-slate-500'
+                          }`}>
+                            {src.priority}
+                          </span>
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 uppercase">
+                            {src.language || country.defaultLanguage}
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-slate-400 truncate max-w-sm">
+                          {src.url}
+                        </div>
                       </div>
-                      <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5 font-mono">
-                        {src.url}
+
+                      {/* Controls */}
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => handleTestSource(src)}
+                          disabled={testingId === src.id}
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-slate-100 dark:hover:bg-slate-700 transition-all"
+                          title="Test RSS Feed"
+                        >
+                          {testingId === src.id ? (
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin text-indigo-600" />
+                          ) : (
+                            <Play className="w-3.5 h-3.5" />
+                          )}
+                        </button>
+                        
+                        <button
+                          type="button"
+                          onClick={() => handleStartEdit(src)}
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-all"
+                          title="Edit Source"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleToggleActive(src.id)}
+                          className={`p-1.5 rounded-lg text-xs font-bold transition-all ${
+                            src.active 
+                              ? 'text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40' 
+                              : 'text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+                          }`}
+                          title={src.active ? 'Disable Source' : 'Enable Source'}
+                        >
+                          {src.active ? <CheckCircle2 className="w-4 h-4 text-emerald-500" /> : <X className="w-4 h-4" />}
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(src.id)}
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-all"
+                          title="Delete Source"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
                       </div>
                     </div>
 
-                    {/* Active toggle */}
-                    <label className="relative inline-flex items-center cursor-pointer shrink-0 mt-0.5">
-                      <input
-                        type="checkbox"
-                        checked={src.active}
-                        onChange={() => handleToggleActive(src.id)}
-                        className="sr-only peer"
-                      />
-                      <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
-                    </label>
+                    {/* Test Results Banner */}
+                    {test && (
+                      <div className={`mt-2.5 p-2 rounded-xl text-[11px] flex items-center justify-between ${
+                        test.success 
+                          ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800' 
+                          : 'bg-rose-50 dark:bg-rose-950/40 text-rose-800 dark:text-rose-300 border border-rose-200 dark:border-rose-800'
+                      }`}>
+                        <div className="flex items-center gap-1.5">
+                          {test.success ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" /> : <AlertCircle className="w-3.5 h-3.5" />}
+                          <span>{test.message}</span>
+                        </div>
+                        <span className="font-mono text-[10px] opacity-75">
+                          {test.latencyMs}ms
+                        </span>
+                      </div>
+                    )}
                   </div>
-
-                  {/* Test Result Message */}
-                  {testResult && (
-                    <div className={`mt-2 p-2 rounded-xl text-[11px] flex items-start gap-1.5 ${
-                      testResult.success 
-                        ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/40' 
-                        : 'bg-rose-50 dark:bg-rose-950/40 text-rose-800 dark:text-rose-300 border border-rose-200 dark:border-rose-800/40'
-                    }`}>
-                      {testResult.success ? (
-                        <CheckCircle2 className="w-3.5 h-3.5 shrink-0 mt-0.5 text-emerald-600" />
-                      ) : (
-                        <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-rose-600" />
-                      )}
-                      <div>
-                        <span>{testResult.message}</span>
-                        {testResult.latencyMs && (
-                          <span className="ml-1 opacity-70 font-mono">({testResult.latencyMs}ms)</span>
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Actions */}
-                  <div className="flex items-center justify-between gap-2 mt-2 pt-2 border-t border-slate-100 dark:border-slate-800/60">
-                    <button
-                      type="button"
-                      disabled={isTesting}
-                      onClick={() => handleTestSource(src)}
-                      className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 flex items-center gap-1 disabled:opacity-50"
-                    >
-                      {isTesting ? (
-                        <>
-                          <RefreshCw className="w-3 h-3 animate-spin" />
-                          Testing...
-                        </>
-                      ) : (
-                        <>
-                          <Play className="w-3 h-3" />
-                          Test RSS Source
-                        </>
-                      )}
-                    </button>
-
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => handleStartEdit(src)}
-                        className="p-1 rounded text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
-                        title="Edit Source"
-                      >
-                        <Edit3 className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleDelete(src.id)}
-                        className="p-1 rounded text-slate-400 hover:text-rose-600"
-                        title="Delete Source"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+                );
+              })
+            )}
           </div>
         </div>
 

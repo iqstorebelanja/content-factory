@@ -111,7 +111,7 @@ export const MediaViewerModal: React.FC<MediaViewerModalProps> = ({
         message: result.error || 'File exceeds your configured download limit.'
       });
     } else {
-      setDownloadError(result.error || 'Direct download unavailable. Open the original source instead.');
+      setDownloadError(result.error || 'Browser download unavailable. Open the original source instead.');
     }
   };
 
@@ -438,12 +438,38 @@ export const MediaViewerModal: React.FC<MediaViewerModalProps> = ({
             {!isEmbedOrRestricted && (
               <button
                 type="button"
+                id="btn-modal-download-media"
                 disabled={isDownloading}
                 onClick={handleDownloadClick}
-                className="text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 px-4 py-2 rounded-xl flex items-center gap-1.5 shadow-md shadow-indigo-600/30 transition-all"
+                className={`text-xs font-bold text-white px-4 py-2 rounded-xl flex items-center gap-1.5 shadow-md transition-all ${
+                  downloadSuccess
+                    ? 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-600/30'
+                    : downloadError
+                    ? 'bg-rose-600 hover:bg-rose-500 shadow-rose-600/30'
+                    : 'bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 shadow-indigo-600/30'
+                }`}
               >
-                <Download className="w-3.5 h-3.5" />
-                <span>{isVideo ? 'Download Video' : 'Download Image'}</span>
+                {isDownloading ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Downloading... ({downloadProgress}%)</span>
+                  </>
+                ) : downloadSuccess ? (
+                  <>
+                    <Check className="w-3.5 h-3.5" />
+                    <span>Downloaded ✓</span>
+                  </>
+                ) : downloadError ? (
+                  <>
+                    <AlertCircle className="w-3.5 h-3.5" />
+                    <span>Browser download unavailable (Retry)</span>
+                  </>
+                ) : (
+                  <>
+                    <Download className="w-3.5 h-3.5" />
+                    <span>{isVideo ? 'Download Video (Available)' : 'Download Image (Available)'}</span>
+                  </>
+                )}
               </button>
             )}
 

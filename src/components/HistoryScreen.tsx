@@ -25,6 +25,7 @@ interface HistoryScreenProps {
   history: SocialPost[];
   onReShare: (post: SocialPost) => void;
   onDelete: (id: string) => void;
+  onClearHistory?: () => void;
   onCreateNew: () => void;
   onDuplicate?: (post: SocialPost) => void;
   userAccounts?: UserSocialAccounts;
@@ -35,6 +36,7 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({
   history,
   onReShare,
   onDelete,
+  onClearHistory,
   onCreateNew,
   onDuplicate,
   userAccounts,
@@ -151,12 +153,28 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({
             {history.length} posts recorded across platforms
           </p>
         </div>
-        <button
-          onClick={onCreateNew}
-          className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-indigo-600 text-white hover:bg-indigo-500 transition-colors shadow-xs"
-        >
-          New Post
-        </button>
+        <div className="flex items-center gap-2">
+          {history.length > 0 && onClearHistory && (
+            <button
+              id="btn-clear-history"
+              type="button"
+              onClick={() => {
+                if (window.confirm('Clear all post history records? This cannot be undone.')) {
+                  onClearHistory();
+                }
+              }}
+              className="text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-500 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+            >
+              Clear History
+            </button>
+          )}
+          <button
+            onClick={onCreateNew}
+            className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-indigo-600 text-white hover:bg-indigo-500 transition-colors shadow-xs"
+          >
+            New Post
+          </button>
+        </div>
       </div>
 
       {/* Search & Filter Controls */}

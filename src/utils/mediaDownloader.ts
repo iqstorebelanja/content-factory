@@ -2,6 +2,7 @@
 // Respects size limits, user confirmation for large videos, source restrictions, and attribution.
 
 import { recordMediaCached } from './mediaCache';
+import { apiService } from '../services/apiService';
 
 export interface MediaProbeResult {
   accessible: boolean;
@@ -94,14 +95,8 @@ export async function probeMedia(url: string): Promise<MediaProbeResult> {
   }
 
   try {
-    const res = await fetch('/api/news/media-probe', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url })
-    });
-
-    if (res.ok) {
-      const data = await res.json();
+    const data = await apiService.discoverMedia(url);
+    if (data.success || data.statusCode !== undefined) {
       return {
         accessible: !!data.accessible,
         isDownloadable: !!data.isDownloadable,
@@ -161,8 +156,8 @@ export async function downloadMediaToDevice(options: {
   try {
     if (onProgress) onProgress(15);
 
-    // Use secure server-side download proxy to ensure CORS compliance & proper headers
-    const proxyUrl = `/api/news/media-proxy-download?url=${encodeURIComponent(mediaUrl)}&limitMb=${maxLimitMb}`;
+    // Use secure server-side download proxy via apiService to ensure CORS compliance & proper headers
+    const proxyUrl = apiService.getMediaProxyDownloadUrl(mediaUrl, maxLimitMb);
     
     const response = await fetch(proxyUrl);
     if (!response.ok) {

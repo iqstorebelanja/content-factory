@@ -60,18 +60,46 @@ function readJsonFromStorage<T>(key: string, fallback: T): T {
  * Strips any sensitive credentials (tokens, secrets, passwords)
  * to ensure privacy and security.
  */
-function sanitizeSensitiveData(obj: any): any {
+export function sanitizeSensitiveData(obj: any): any {
   if (!obj || typeof obj !== 'object') return obj;
   if (Array.isArray(obj)) {
     return obj.map(item => sanitizeSensitiveData(item));
   }
 
   const cleaned: Record<string, any> = {};
-  const sensitiveKeys = ['password', 'secret', 'clientSecret', 'accessToken', 'token', 'apiKey', 'authToken'];
+  const sensitiveKeys = [
+    'password',
+    'secret',
+    'clientsecret',
+    'accesstoken',
+    'access_token',
+    'refreshtoken',
+    'refresh_token',
+    'token',
+    'apikey',
+    'api_key',
+    'authtoken',
+    'privatekey',
+    'private_key',
+    'credential',
+    'authorization',
+    'bearer',
+    'session',
+    // Entitlement & subscription injection protection:
+    // Backup files must never carry or restore PRO/ADMIN_TEST subscription entitlements
+    'sss_subscription_state',
+    'subscriptionstate',
+    'testplanoverride',
+    'developertestmodeenabled',
+    'isownermode',
+    'paymentstatus',
+    'paymentprovider',
+    'proentitlement'
+  ];
 
   for (const [k, v] of Object.entries(obj)) {
-    if (sensitiveKeys.some(s => k.toLowerCase().includes(s.toLowerCase()))) {
-      continue; // Exclude sensitive credential
+    if (sensitiveKeys.some(s => k.toLowerCase().includes(s))) {
+      continue; // Exclude sensitive credential or subscription entitlement override
     }
     cleaned[k] = sanitizeSensitiveData(v);
   }
@@ -337,32 +365,34 @@ export function validateBackupFile(fileContent: any): BackupValidationResult {
                     (acc.whatsapp?.length || 0);
   }
 
-  // Normalize missing fields for older versions without throwing away user data
+  // Normalize missing fields for older versions without throwing away user data, and sanitize any imported payload
   const normalizedBackup: BackupFile = {
     backupVersion: version,
     createdAt: fileContent.createdAt || new Date().toISOString(),
     appVersion: fileContent.appVersion || '1.0.0',
     timezone: fileContent.timezone || data.settings?.timezone || 'Asia/Jakarta',
     data: {
-      accounts: data.accounts || DEFAULT_USER_ACCOUNTS,
-      groups: Array.isArray(data.groups) ? data.groups : [],
-      drafts: Array.isArray(data.drafts) ? data.drafts : [],
-      history: Array.isArray(data.history) ? data.history : [],
-      newsLibrary: Array.isArray(data.newsLibrary) ? data.newsLibrary : [],
-      newsHunter: data.newsHunter || DEFAULT_NEWS_HUNTER_SETTINGS,
-      autoHunt: data.autoHunt || DEFAULT_AUTO_HUNT_SETTINGS,
-      newsSources: Array.isArray(data.newsSources) ? data.newsSources : DEFAULT_RSS_SOURCES,
-      queue: Array.isArray(data.queue) ? data.queue : [],
-      settings: data.settings || {
-        language: 'en',
-        timezone: 'Asia/Jakarta',
-        notificationEnabled: true,
-        isExpoGoMode: true,
-        hasDevBuild: false,
-        defaultHashtags: [],
-        theme: 'dark'
-      },
-      discoveryCache: data.discoveryCache
+      accounts: sanitizeSensitiveData(data.accounts || DEFAULT_USER_ACCOUNTS),
+      groups: sanitizeSensitiveData(Array.isArray(data.groups) ? data.groups : []),
+      drafts: sanitizeSensitiveData(Array.isArray(data.drafts) ? data.drafts : []),
+      history: sanitizeSensitiveData(Array.isArray(data.history) ? data.history : []),
+      newsLibrary: sanitizeSensitiveData(Array.isArray(data.newsLibrary) ? data.newsLibrary : []),
+      newsHunter: sanitizeSensitiveData(data.newsHunter || DEFAULT_NEWS_HUNTER_SETTINGS),
+      autoHunt: sanitizeSensitiveData(data.autoHunt || DEFAULT_AUTO_HUNT_SETTINGS),
+      newsSources: sanitizeSensitiveData(Array.isArray(data.newsSources) ? data.newsSources : DEFAULT_RSS_SOURCES),
+      queue: sanitizeSensitiveData(Array.isArray(data.queue) ? data.queue : []),
+      settings: sanitizeSensitiveData(
+        data.settings || {
+          language: 'en',
+          timezone: 'Asia/Jakarta',
+          notificationEnabled: true,
+          isExpoGoMode: true,
+          hasDevBuild: false,
+          defaultHashtags: [],
+          theme: 'dark'
+        }
+      ),
+      discoveryCache: sanitizeSensitiveData(data.discoveryCache)
     }
   };
 

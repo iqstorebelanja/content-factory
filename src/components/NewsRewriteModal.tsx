@@ -17,6 +17,8 @@ import { NewsArticle, NewsCluster, NewsAiRewrite, PlatformId } from '../types';
 import { requestNewsAiRewrite } from '../utils/newsEngine';
 import { nativeBridge } from '../services/nativeBridge';
 import { isOnline } from '../services/networkState';
+import { usePlanContext } from '../contexts/PlanContext';
+import { costGuard } from '../services/costGuard';
 
 interface NewsRewriteModalProps {
   isOpen: boolean;
@@ -41,6 +43,7 @@ export const NewsRewriteModal: React.FC<NewsRewriteModalProps> = ({
   onCreatePost,
   onSaveToLibrary
 }) => {
+  const { recordUsage, canUseFeature, openUpgradeModal } = usePlanContext();
   const [isLoading, setIsLoading] = useState(false);
   const [rewrite, setRewrite] = useState<NewsAiRewrite | null>(initialRewrite || null);
   const [selectedTitle, setSelectedTitle] = useState<string>('');
@@ -48,6 +51,8 @@ export const NewsRewriteModal: React.FC<NewsRewriteModalProps> = ({
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [isSaved, setIsSaved] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [targetLanguage, setTargetLanguage] = useState<string>('same_as_news');
+  const [modalViewTab, setModalViewTab] = useState<'rewrite' | 'original'>('rewrite');
 
   useEffect(() => {
     if (isOpen && article) {
@@ -57,29 +62,55 @@ export const NewsRewriteModal: React.FC<NewsRewriteModalProps> = ({
         setRewrite(initialRewrite);
         setSelectedTitle(initialRewrite.selectedTitle);
       } else {
-        fetchRewrite();
+        fetchRewrite('same_as_news');
       }
     }
   }, [isOpen, article, initialRewrite]);
 
-  const fetchRewrite = async () => {
+  const fetchRewrite = async (lang: string = targetLanguage) => {
     if (!article) return;
+
+    // 1. Quota Pre-flight
+    const quotaCheck = canUseFeature('news_rewrites');
+    if (!quotaCheck.allowed) {
+      const msg = quotaCheck.reason || 'Daily news rewrite limit reached on your plan.';
+      setErrorMsg(msg);
+      openUpgradeModal('News AI Rewrite', msg);
+      return;
+    }
+
+    // 2. Request Lock & Rapid Click Protection
+    const lock = costGuard.acquireLock('news_rewrites');
+    if (!lock.acquired) {
+      setErrorMsg(lock.reason || 'A rewrite request is already in progress.');
+      return;
+    }
+
     if (!isOnline()) {
+      costGuard.releaseLock('news_rewrites');
       setErrorMsg('Offline Mode: AI News Rewrite requires an active internet connection.');
       return;
     }
+
     setIsLoading(true);
     setErrorMsg(null);
     try {
-      const result = await requestNewsAiRewrite(article, cluster || undefined);
+      const result = await requestNewsAiRewrite(article, cluster || undefined, lang);
       setRewrite(result);
       setSelectedTitle(result.selectedTitle || article.title);
+      recordUsage('news_rewrites');
     } catch (err: any) {
       console.error('Failed rewrite:', err);
-      setErrorMsg(err?.message || 'Failed to generate rewrite');
+      setErrorMsg(err?.message || 'Failed to generate rewrite. Please try again.');
     } finally {
       setIsLoading(false);
+      costGuard.releaseLock('news_rewrites');
     }
+  };
+
+  const handleLanguageChange = (newLang: string) => {
+    setTargetLanguage(newLang);
+    fetchRewrite(newLang);
   };
 
   if (!isOpen || !article) return null;
@@ -128,9 +159,87 @@ export const NewsRewriteModal: React.FC<NewsRewriteModalProps> = ({
           </button>
         </div>
 
+        {/* View Switcher Tabs: AI Rewrite vs Original Story */}
+        <div className="px-4 pt-3 pb-0 bg-slate-50/50 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-800 flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setModalViewTab('rewrite')}
+            className={`px-3 py-2 text-xs font-bold border-b-2 transition-all flex items-center gap-1.5 ${
+              modalViewTab === 'rewrite'
+                ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
+                : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+            }`}
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>AI Rewrite & Platform Copies</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setModalViewTab('original')}
+            className={`px-3 py-2 text-xs font-bold border-b-2 transition-all flex items-center gap-1.5 ${
+              modalViewTab === 'original'
+                ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
+                : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+            }`}
+          >
+            <Bookmark className="w-3.5 h-3.5" />
+            <span>Original Source Story</span>
+          </button>
+        </div>
+
         {/* Content */}
         <div className="p-4 overflow-y-auto space-y-4 flex-1">
-          {isLoading ? (
+          {modalViewTab === 'original' ? (
+            /* Original Story Panel (Requirement #18: Preserved Separately) */
+            <div className="space-y-3.5 animate-fadeIn">
+              <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 space-y-3">
+                <div className="flex items-center justify-between flex-wrap gap-2 text-xs">
+                  <span className="font-bold px-2 py-0.5 rounded-md bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">
+                    {article.category || 'General'}
+                  </span>
+                  <div className="text-[11px] text-slate-500 flex items-center gap-1">
+                    <Clock className="w-3 h-3" />
+                    <span>
+                      {article.publishedAt ? new Date(article.publishedAt).toLocaleString() : 'Recent'}
+                    </span>
+                  </div>
+                </div>
+
+                <div>
+                  <h3 className="text-base font-bold text-slate-900 dark:text-white leading-snug">
+                    {article.title}
+                  </h3>
+                  <p className="text-xs text-slate-600 dark:text-slate-300 mt-2 leading-relaxed">
+                    {article.summary || 'No additional summary text provided by source.'}
+                  </p>
+                </div>
+
+                <div className="pt-2 border-t border-slate-200 dark:border-slate-700/60 flex items-center justify-between flex-wrap gap-2 text-xs">
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-slate-700 dark:text-slate-300">
+                      Source: {article.source}
+                    </span>
+                    {article.countryName && (
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold">
+                        {article.countryName} ({article.countryCode || 'GLOBAL'})
+                      </span>
+                    )}
+                  </div>
+                  {article.url && (
+                    <a
+                      href={article.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1"
+                    >
+                      <span>Open Source URL</span>
+                      <Share2 className="w-3 h-3" />
+                    </a>
+                  )}
+                </div>
+              </div>
+            </div>
+          ) : isLoading ? (
             <div className="py-16 text-center space-y-3">
               <RefreshCw className="w-8 h-8 mx-auto text-indigo-600 animate-spin" />
               <div className="text-sm font-bold text-slate-900 dark:text-white">
@@ -147,14 +256,49 @@ export const NewsRewriteModal: React.FC<NewsRewriteModalProps> = ({
                 {errorMsg}
               </div>
               <button
-                onClick={fetchRewrite}
-                className="px-4 py-1.5 rounded-xl bg-rose-600 text-white text-xs font-semibold"
+                disabled={isLoading || costGuard.isLocked('news_rewrites')}
+                onClick={() => fetchRewrite(targetLanguage)}
+                className="px-4 py-1.5 rounded-xl bg-rose-600 text-white text-xs font-semibold disabled:opacity-50"
               >
                 Retry Rewrite
               </button>
             </div>
           ) : rewrite ? (
             <>
+              {/* Language Selection Bar (Requirement #18) */}
+              <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-800 flex items-center justify-between gap-2 flex-wrap text-xs">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                    Rewrite Language:
+                  </span>
+                  <select
+                    value={targetLanguage}
+                    disabled={isLoading || costGuard.isLocked('news_rewrites')}
+                    onChange={e => handleLanguageChange(e.target.value)}
+                    className="text-xs font-semibold px-2 py-1 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:opacity-50"
+                  >
+                    <option value="same_as_news">Auto (Same as News)</option>
+                    <option value="en">English</option>
+                    <option value="id">Bahasa Indonesia</option>
+                    <option value="ja">Japanese (日本語)</option>
+                    <option value="de">German (Deutsch)</option>
+                    <option value="fr">French (Français)</option>
+                    <option value="es">Spanish (Español)</option>
+                    <option value="pt">Portuguese (Português)</option>
+                    <option value="ko">Korean (한국어)</option>
+                  </select>
+                </div>
+
+                <button
+                  type="button"
+                  disabled={isLoading || costGuard.isLocked('news_rewrites')}
+                  onClick={() => fetchRewrite(targetLanguage)}
+                  className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 flex items-center gap-1 transition-all disabled:opacity-50"
+                >
+                  <RefreshCw className="w-3 h-3" />
+                  <span>Regenerate</span>
+                </button>
+              </div>
               {/* Fact Safety Indicator */}
               <div className={`p-3 rounded-2xl border text-xs flex items-start gap-2 ${
                 rewrite.factStatus === 'differing'

@@ -8,6 +8,8 @@ export interface MediaCacheItem {
   type: 'image' | 'video';
   sizeBytes?: number;
   cachedAt: string;
+  source?: 'news_hunter' | 'news_library' | 'media_discovery' | 'preview' | 'temp_download' | 'user_upload';
+  isPermanent?: boolean;
 }
 
 export interface MediaCacheStore {
@@ -31,7 +33,15 @@ export function getMediaCacheStore(): MediaCacheStore {
   }
 }
 
-export function recordMediaCached(url: string, type: 'image' | 'video', sizeBytes?: number): void {
+export function recordMediaCached(
+  url: string, 
+  type: 'image' | 'video', 
+  sizeBytes?: number,
+  options?: {
+    source?: 'news_hunter' | 'news_library' | 'media_discovery' | 'preview' | 'temp_download' | 'user_upload';
+    isPermanent?: boolean;
+  }
+): void {
   try {
     const store = getMediaCacheStore();
     const existingIndex = store.items.findIndex(i => i.url === url);
@@ -39,18 +49,25 @@ export function recordMediaCached(url: string, type: 'image' | 'video', sizeByte
       url,
       type,
       sizeBytes: sizeBytes && sizeBytes > 0 ? sizeBytes : (type === 'image' ? 350 * 1024 : 3.5 * 1024 * 1024),
-      cachedAt: new Date().toISOString()
+      cachedAt: new Date().toISOString(),
+      source: options?.source || 'temp_download',
+      isPermanent: !!options?.isPermanent
     };
 
     if (existingIndex >= 0) {
-      store.items[existingIndex] = entry;
+      store.items[existingIndex] = {
+        ...store.items[existingIndex],
+        ...entry,
+        // Preserve isPermanent if previously set
+        isPermanent: store.items[existingIndex].isPermanent || entry.isPermanent
+      };
     } else {
       store.items.unshift(entry);
     }
 
-    // Keep max 200 recent cached references
-    if (store.items.length > 200) {
-      store.items = store.items.slice(0, 200);
+    // Keep max 300 recent cached references
+    if (store.items.length > 300) {
+      store.items = store.items.slice(0, 300);
     }
 
     localStorage.setItem(STORAGE_KEY_MEDIA_CACHE, JSON.stringify(store));

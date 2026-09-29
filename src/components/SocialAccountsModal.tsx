@@ -31,6 +31,7 @@ import {
   generateAccountId,
   normalizeUserAccounts
 } from '../utils/socialAccounts';
+import { usePlanContext } from '../contexts/PlanContext';
 
 interface SocialAccountsModalProps {
   isOpen: boolean;
@@ -120,7 +121,20 @@ export const SocialAccountsModal: React.FC<SocialAccountsModalProps> = ({
   };
 
   // --- Handlers for Facebook Pages ---
+  const { canUseFeature, openUpgradeModal } = usePlanContext();
+
+  const checkCanAddAccount = (pId: PlatformId): boolean => {
+    const list = formData[pId] || [];
+    const check = canUseFeature('accounts_per_platform', list.length);
+    if (!check.allowed) {
+      openUpgradeModal('Social Accounts', check.reason || 'Account limit reached for this platform on your plan.');
+      return false;
+    }
+    return true;
+  };
+
   const startAddFacebook = () => {
+    if (!checkCanAddAccount('facebook_page')) return;
     setFbDraft({ pageName: '', pageUrl: '' });
     setAddingForPlatform('facebook_page');
     setEditingAccountId(null);
@@ -177,6 +191,7 @@ export const SocialAccountsModal: React.FC<SocialAccountsModalProps> = ({
 
   // --- Handlers for Facebook Personal Profiles ---
   const startAddFacebookProfile = () => {
+    if (!checkCanAddAccount('facebook_profile')) return;
     setFbProfDraft({ profileName: '', profileUrl: '' });
     setAddingForPlatform('facebook_profile');
     setEditingAccountId(null);
@@ -233,6 +248,7 @@ export const SocialAccountsModal: React.FC<SocialAccountsModalProps> = ({
 
   // --- Handlers for Instagram ---
   const startAddInstagram = () => {
+    if (!checkCanAddAccount('instagram')) return;
     setIgDraft({ username: '', profileUrl: '' });
     setAddingForPlatform('instagram');
     setEditingAccountId(null);
@@ -289,6 +305,7 @@ export const SocialAccountsModal: React.FC<SocialAccountsModalProps> = ({
 
   // --- Handlers for TikTok ---
   const startAddTikTok = () => {
+    if (!checkCanAddAccount('tiktok')) return;
     setTtDraft({ username: '', profileUrl: '' });
     setAddingForPlatform('tiktok');
     setEditingAccountId(null);
@@ -345,6 +362,7 @@ export const SocialAccountsModal: React.FC<SocialAccountsModalProps> = ({
 
   // --- Handlers for YouTube ---
   const startAddYouTube = () => {
+    if (!checkCanAddAccount('youtube')) return;
     setYtDraft({ channelName: '', channelUrl: '' });
     setAddingForPlatform('youtube');
     setEditingAccountId(null);
@@ -401,6 +419,7 @@ export const SocialAccountsModal: React.FC<SocialAccountsModalProps> = ({
 
   // --- Handlers for Twitter / X ---
   const startAddTwitter = () => {
+    if (!checkCanAddAccount('twitter')) return;
     setTwDraft({ username: '', profileUrl: '' });
     setAddingForPlatform('twitter');
     setEditingAccountId(null);
@@ -457,6 +476,7 @@ export const SocialAccountsModal: React.FC<SocialAccountsModalProps> = ({
 
   // --- Handlers for WhatsApp ---
   const startAddWhatsApp = () => {
+    if (!checkCanAddAccount('whatsapp')) return;
     setWaDraft({ name: '', phoneNumber: '', waLink: '' });
     setAddingForPlatform('whatsapp');
     setEditingAccountId(null);

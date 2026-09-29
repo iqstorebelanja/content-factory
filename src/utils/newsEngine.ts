@@ -14,6 +14,17 @@ import {
   NewsAiRewrite
 } from '../types';
 import { parseRssXml } from './rssParser';
+import { 
+  CountryInfo, 
+  getCountryByCode, 
+  detectCountryFromLocale, 
+  SUPPORTED_COUNTRIES, 
+  getCategoriesForCountry 
+} from '../data/countries';
+import { CURATED_NEWS_SOURCES } from '../data/curatedNewsSources';
+import { canUseFeature, incrementUsage } from './planManager';
+import { apiService } from '../services/apiService';
+import { sanitizeUserFacingError } from './errorSanitizer';
 
 const STORAGE_KEY_SOURCES = 'sss_news_sources';
 const STORAGE_KEY_CACHE = 'sss_news_cache';
@@ -25,21 +36,65 @@ const STORAGE_KEY_AUTO_HUNT_RESULT = 'sss_auto_hunt_last_result';
 const STORAGE_KEY_SOURCE_ERRORS = 'sss_auto_hunt_source_errors';
 
 // ==========================================
-// 1. STORAGE: SOURCES
+// 1. STORAGE: SOURCES & COUNTRY MIGRATION
 // ==========================================
 
 export function loadNewsSources(): NewsRssSource[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY_SOURCES);
+    let sources: NewsRssSource[];
     if (!raw) {
-      localStorage.setItem(STORAGE_KEY_SOURCES, JSON.stringify(DEFAULT_RSS_SOURCES));
-      return DEFAULT_RSS_SOURCES;
+      sources = CURATED_NEWS_SOURCES;
+      localStorage.setItem(STORAGE_KEY_SOURCES, JSON.stringify(sources));
+      return sources;
     }
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) && parsed.length > 0 ? parsed : DEFAULT_RSS_SOURCES;
+    sources = Array.isArray(parsed) && parsed.length > 0 ? parsed : CURATED_NEWS_SOURCES;
+
+    // SAFE MIGRATION & ENRICHMENT:
+    // 1. Ensure all legacy Indonesian sources have countryCode: 'ID' and language: 'id' (or 'en' for BBC/Guardian)
+    let hasChanges = false;
+    const existingIds = new Set(sources.map(s => s.id));
+
+    sources = sources.map(s => {
+      let updated = s;
+      if (!s.countryCode) {
+        hasChanges = true;
+        const isGlobal = s.id.includes('bbc-world') || s.id.includes('global') || s.id.includes('guardian');
+        updated = {
+          ...updated,
+          countryCode: isGlobal ? 'GLOBAL' : 'ID',
+          language: isGlobal ? 'en' : 'id',
+          isGlobal: isGlobal
+        };
+      }
+      if (!s.language) {
+        hasChanges = true;
+        updated = {
+          ...updated,
+          language: updated.countryCode === 'ID' ? 'id' : 'en'
+        };
+      }
+      return updated;
+    });
+
+    // 2. Seamlessly append new country curated feeds (US, GB, JP, DE, FR, ES, etc.) without overwriting existing sources
+    for (const curated of CURATED_NEWS_SOURCES) {
+      if (!existingIds.has(curated.id)) {
+        sources.push(curated);
+        existingIds.add(curated.id);
+        hasChanges = true;
+      }
+    }
+
+    if (hasChanges) {
+      localStorage.setItem(STORAGE_KEY_SOURCES, JSON.stringify(sources));
+    }
+
+    return sources;
   } catch (err) {
     console.error('Failed to load news sources from localStorage:', err);
-    return DEFAULT_RSS_SOURCES;
+    return CURATED_NEWS_SOURCES;
   }
 }
 
@@ -49,6 +104,67 @@ export function saveNewsSources(sources: NewsRssSource[]): void {
   } catch (err) {
     console.error('Failed to save news sources to localStorage:', err);
   }
+}
+
+/**
+ * Resolves the user's active news country configuration.
+ * Considers settings mode (auto vs manual) and falls back safely to GLOBAL.
+ */
+export function getActiveNewsCountry(settings?: NewsHunterSettings): CountryInfo {
+  const s = settings || loadNewsSettings();
+  if (s.newsRegionMode === 'manual' && s.manualCountryCode) {
+    return getCountryByCode(s.manualCountryCode);
+  }
+  return detectCountryFromLocale();
+}
+
+/**
+ * Returns filtered sources strictly relevant to a selected country and category.
+ * If includeGlobal is true, supplemental global sources (Reuters, BBC World, AP) may be included.
+ */
+export function getSourcesForCountry(
+  countryCode: string,
+  category: string = 'All Categories',
+  includeGlobal: boolean = true
+): NewsRssSource[] {
+  const allSources = loadNewsSources();
+  const normalizedCountry = (countryCode || 'GLOBAL').toUpperCase().trim();
+
+  return allSources.filter(s => {
+    if (!s.active) return false;
+
+    const sCountry = (s.countryCode || 'ID').toUpperCase().trim();
+    const isDirectCountry = sCountry === normalizedCountry;
+    const isGlobal = s.isGlobal || sCountry === 'GLOBAL';
+
+    // Must be either direct country or supplemental global
+    if (!isDirectCountry) {
+      if (!includeGlobal || !isGlobal) return false;
+    }
+
+    // Category filter
+    if (category && category !== 'All Categories') {
+      const cleanCat = category.toLowerCase().trim();
+      const sourceCat = (s.category || '').toLowerCase().trim();
+
+      if (sourceCat !== cleanCat) {
+        // Cross-match synonyms
+        const isFootball = (cleanCat === 'football' || cleanCat === 'sepakbola') &&
+                           (sourceCat === 'football' || sourceCat === 'sepakbola');
+        const isNational = (cleanCat === 'national' || cleanCat === 'nasional') &&
+                           (sourceCat === 'national' || sourceCat === 'nasional');
+        const isTech = (cleanCat === 'technology' || cleanCat === 'teknologi') &&
+                       (sourceCat === 'technology' || sourceCat === 'teknologi');
+        const isInternational = (cleanCat === 'international' || cleanCat === 'internasional') &&
+                                (sourceCat === 'international' || sourceCat === 'internasional');
+        if (!isFootball && !isNational && !isTech && !isInternational) {
+          return false;
+        }
+      }
+    }
+
+    return true;
+  });
 }
 
 // ==========================================
@@ -546,31 +662,34 @@ export function clusterArticles(articles: NewsArticle[]): NewsCluster[] {
 // ==========================================
 
 export async function fetchRssFeed(source: NewsRssSource): Promise<NewsArticle[]> {
+  const country = getCountryByCode(source.countryCode || 'ID');
+  const sourceLang = source.language || country.defaultLanguage;
+
   try {
-    // 1. Try secure server-side proxy endpoint first
-    const res = await fetch('/api/news/fetch-rss', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url: source.url, sourceName: source.name, category: source.category })
+    // 1. Try secure server-side proxy endpoint first via apiService
+    const proxyRes = await apiService.fetchTrending({
+      url: source.url,
+      sourceName: source.name,
+      category: source.category
     });
 
-    if (res.ok) {
-      const data = await res.json();
-      if (data.success && Array.isArray(data.articles)) {
-        return data.articles.map((item: any, idx: number) => {
-          const { score, signals } = calculateHypeScore(item, 1);
-          return {
-            ...item,
-            id: item.id || `rss-${source.id}-${idx}-${Date.now()}`,
-            source: source.name,
-            sourceId: source.id,
-            sourceType: 'RSS' as const,
-            discoveredAt: item.discoveredAt || new Date().toISOString(),
-            hypeScore: score,
-            hypeSignals: signals
-          };
-        });
-      }
+    if (proxyRes.success && Array.isArray(proxyRes.articles)) {
+      return proxyRes.articles.map((item: any, idx: number) => {
+        const { score, signals } = calculateHypeScore(item, 1);
+        return {
+          ...item,
+          id: item.id || `rss-${source.id}-${idx}-${Date.now()}`,
+          source: source.name,
+          sourceId: source.id,
+          countryCode: country.code,
+          countryName: country.name,
+          sourceLanguage: sourceLang,
+          sourceType: 'RSS' as const,
+          discoveredAt: item.discoveredAt || new Date().toISOString(),
+          hypeScore: score,
+          hypeSignals: signals
+        };
+      });
     }
   } catch {
     // Server proxy failed or in standalone browser mode
@@ -593,6 +712,9 @@ export async function fetchRssFeed(source: NewsRssSource): Promise<NewsArticle[]
         url: item.link,
         source: source.name,
         sourceId: source.id,
+        countryCode: country.code,
+        countryName: country.name,
+        sourceLanguage: sourceLang,
         publishedAt: item.publishedAt,
         summary: item.summary,
         imageUrl: item.imageUrl,
@@ -628,17 +750,14 @@ export async function testRssSource(url: string, sourceName: string): Promise<{
 }> {
   const start = Date.now();
   try {
-    // Try server test endpoint
-    const res = await fetch('/api/news/test-rss', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url, name: sourceName })
-    });
-
-    if (res.ok) {
-      const data = await res.json();
+    // Try server test endpoint via apiService
+    const proxyTest = await apiService.testRssEndpoint(url, sourceName);
+    if (proxyTest.ok) {
       return {
-        ...data,
+        success: proxyTest.success,
+        message: proxyTest.message,
+        itemCount: proxyTest.itemCount,
+        sampleTitle: proxyTest.sampleTitle,
         latencyMs: Date.now() - start
       };
     }
@@ -668,25 +787,84 @@ export async function testRssSource(url: string, sourceName: string): Promise<{
 }
 
 // ==========================================
-// 9. WEB / SEO DISCOVERY
+// 9. WEB / SEO DISCOVERY (Country-Aware + Custom Search)
 // ==========================================
 
-export async function fetchWebDiscovery(category: string): Promise<NewsArticle[]> {
-  try {
-    const res = await fetch('/api/news/web-discover', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ category })
-    });
+const LS_KEY_RECENT_SEARCHES = 'sss_news_recent_searches';
 
-    if (res.ok) {
-      const data = await res.json();
-      if (data.success && Array.isArray(data.articles)) {
-        return data.articles.map((item: any, idx: number) => {
+export function loadRecentNewsSearches(): string[] {
+  try {
+    const raw = localStorage.getItem(LS_KEY_RECENT_SEARCHES);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter(s => typeof s === 'string' && s.trim().length > 0) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function addRecentNewsSearch(term: string): string[] {
+  const cleaned = (term || '').trim();
+  if (!cleaned) return loadRecentNewsSearches();
+  try {
+    const existing = loadRecentNewsSearches();
+    const filtered = existing.filter(s => s.toLowerCase() !== cleaned.toLowerCase());
+    const updated = [cleaned, ...filtered].slice(0, 8);
+    localStorage.setItem(LS_KEY_RECENT_SEARCHES, JSON.stringify(updated));
+    return updated;
+  } catch {
+    return [];
+  }
+}
+
+export function removeRecentNewsSearch(term: string): string[] {
+  try {
+    const existing = loadRecentNewsSearches();
+    const updated = existing.filter(s => s.toLowerCase() !== (term || '').trim().toLowerCase());
+    localStorage.setItem(LS_KEY_RECENT_SEARCHES, JSON.stringify(updated));
+    return updated;
+  } catch {
+    return [];
+  }
+}
+
+export function clearRecentNewsSearches(): string[] {
+  try {
+    localStorage.removeItem(LS_KEY_RECENT_SEARCHES);
+  } catch {}
+  return [];
+}
+
+export async function fetchWebDiscovery(
+  category: string,
+  countryCode: string = 'GLOBAL',
+  countryName: string = 'Global / International',
+  language: string = 'en',
+  customQuery?: string
+): Promise<NewsArticle[]> {
+  let attempts = 0;
+  const maxAttempts = 2; // Controlled retry limit (Requirement #10)
+
+  while (attempts < maxAttempts) {
+    attempts++;
+    try {
+      const searchRes = await apiService.searchNews({
+        category,
+        countryCode,
+        countryName,
+        language,
+        customQuery: customQuery ? customQuery.trim() : undefined
+      });
+
+      if (searchRes.success && Array.isArray(searchRes.articles)) {
+        return searchRes.articles.map((item: any, idx: number) => {
           const { score, signals } = calculateHypeScore(item, 1);
           return {
             ...item,
             id: item.id || `web-${idx}-${Date.now()}`,
+            countryCode: item.countryCode || countryCode,
+            countryName: item.countryName || countryName,
+            sourceLanguage: item.sourceLanguage || language,
             sourceType: 'WEB' as const,
             discoveredAt: item.discoveredAt || new Date().toISOString(),
             hypeScore: score,
@@ -694,44 +872,61 @@ export async function fetchWebDiscovery(category: string): Promise<NewsArticle[]
           };
         });
       }
+      if (searchRes.requiresBackend) {
+        break;
+      }
+    } catch (err) {
+      if (attempts >= maxAttempts) {
+        console.warn('[NewsHunter] Web discovery failed after max attempts:', sanitizeUserFacingError(err));
+      } else {
+        await new Promise(r => setTimeout(r, 600)); // Brief backoff before single retry
+      }
     }
-  } catch (err) {
-    console.warn('[NewsHunter] Web discovery failed:', err);
   }
   return [];
 }
 
 // ==========================================
-// 10. AI REWRITE GENERATOR
+// 10. AI REWRITE GENERATOR (Cross-Language)
 // ==========================================
 
 export async function requestNewsAiRewrite(
   article: NewsArticle,
-  cluster?: NewsCluster
+  cluster?: NewsCluster,
+  targetLanguage: string = 'same_as_news'
 ): Promise<NewsAiRewrite> {
-  const res = await fetch('/api/news/rewrite', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      title: article.title,
-      summary: article.summary,
-      url: article.url,
-      source: article.source,
-      category: article.category,
-      clusterSources: cluster ? cluster.articles.map(a => ({ source: a.source, title: a.title })) : []
-    })
-  });
+  let attempts = 0;
+  const maxAttempts = 2; // Strict 2-attempt limit to avoid infinite loops
+  let lastError: any = null;
 
-  if (!res.ok) {
-    throw new Error(`Server returned HTTP ${res.status}`);
+  while (attempts < maxAttempts) {
+    attempts++;
+    try {
+      const rwRes = await apiService.rewriteNews({
+        title: article.title,
+        summary: article.summary,
+        url: article.url,
+        source: article.source,
+        category: article.category,
+        clusterSources: cluster ? cluster.articles.map(a => ({ source: a.source, title: a.title })) : [],
+        targetLanguage,
+        sourceLanguage: article.sourceLanguage || 'auto'
+      });
+
+      if (!rwRes.success || !rwRes.rewrite) {
+        throw new Error(rwRes.error || 'Failed to generate rewrite');
+      }
+
+      return rwRes.rewrite;
+    } catch (err: any) {
+      lastError = err;
+      if (attempts < maxAttempts) {
+        await new Promise(r => setTimeout(r, 600));
+      }
+    }
   }
 
-  const data = await res.json();
-  if (!data.success || !data.rewrite) {
-    throw new Error(data.error || 'Failed to generate rewrite');
-  }
-
-  return data.rewrite;
+  throw new Error(sanitizeUserFacingError(lastError, 'Rewrite request failed after retry attempt.'));
 }
 
 // ==========================================
@@ -882,11 +1077,40 @@ export async function executeAutoHuntRun(options?: {
   isHuntExecutionInProgress = true;
 
   try {
+    // 0. Cost Guard Quota Pre-flight (Requirement #7)
+    const huntQuota = canUseFeature('news_hunts');
+    if (!huntQuota.allowed) {
+      const autoSettings = options?.autoHuntSettings || loadAutoHuntSettings();
+      // Postpone next run by 2 hours so we don't repeat checks continuously
+      saveAutoHuntSettings({
+        ...autoSettings,
+        nextHuntTimestamp: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString()
+      });
+      return {
+        success: false,
+        result: loadLastAutoHuntResult() || {
+          lastHuntTime: new Date().toISOString(),
+          sourcesChecked: 0,
+          newStoriesCount: 0,
+          updatedClustersCount: 0,
+          duplicatesIgnoredCount: 0,
+          errorsCount: 1,
+          errorDetails: [{ sourceName: 'CostGuard', error: 'Daily auto hunt limit reached on your plan.', timestamp: new Date().toISOString() }]
+        },
+        newArticles: [],
+        allArticles: [],
+        clusters: [],
+        errors: [{ sourceName: 'CostGuard', error: 'Daily auto hunt limit reached on your plan.', timestamp: new Date().toISOString() }],
+        highPriorityStories: []
+      };
+    }
+
     const currentSources = options?.sources || loadNewsSources();
     const autoSettings = options?.autoHuntSettings || loadAutoHuntSettings();
+    const activeCountry = getActiveNewsCountry(options?.newsSettings);
     const errors: { sourceName: string; error: string; timestamp: string }[] = [];
 
-    // 1. Filter sources based on auto hunt categories (Requirement #2)
+    // 1. Filter sources based on active country and auto hunt categories
     const monitoredCategories = new Set(
       (autoSettings.categories || []).map(c => c.toLowerCase())
     );
@@ -896,6 +1120,17 @@ export async function executeAutoHuntRun(options?: {
 
     const activeSources = currentSources.filter(s => {
       if (!s.active) return false;
+
+      // Filter by country
+      const sCountry = (s.countryCode || 'ID').toUpperCase().trim();
+      const isDirectCountry = sCountry === activeCountry.code;
+      const isGlobal = s.isGlobal || sCountry === 'GLOBAL';
+      const allowGlobal = options?.newsSettings?.supplementWithGlobal !== false;
+
+      if (!isDirectCountry && (!allowGlobal || !isGlobal)) {
+        return false;
+      }
+
       if (options?.forceAllSources) return true;
       if (monitoredCategories.size === 0) return true;
       return monitoredCategories.has(s.category.toLowerCase()) || monitoredCategories.has('all categories');
@@ -926,17 +1161,38 @@ export async function executeAutoHuntRun(options?: {
       }
     }
 
-    // 3. Optional Web Search (Requirement #3)
+    // 3. Optional Web Search with Cost Guard Quota Gate
     if (autoSettings.sources.web) {
-      try {
-        const catsToSearch = Array.from(monitoredCategories).slice(0, 3);
-        const searchPromises = catsToSearch.map(cat => fetchWebDiscovery(cat));
-        const webResults = await Promise.all(searchPromises);
-        for (const res of webResults) {
-          collectedArticles.push(...res);
+      const webQuota = canUseFeature('web_search');
+      if (webQuota.allowed) {
+        try {
+          const catsToSearch = Array.from(monitoredCategories).slice(0, 2);
+          const searchPromises = catsToSearch.map(cat => fetchWebDiscovery(
+            cat,
+            activeCountry.code,
+            activeCountry.name,
+            activeCountry.defaultLanguage
+          ));
+          const webResults = await Promise.all(searchPromises);
+          let foundWeb = false;
+          for (const res of webResults) {
+            if (res.length > 0) {
+              collectedArticles.push(...res);
+              foundWeb = true;
+            }
+          }
+          if (foundWeb) {
+            incrementUsage('web_search');
+          }
+        } catch (err) {
+          console.warn('Auto Hunt web search warning:', err);
         }
-      } catch (err) {
-        console.warn('Auto Hunt web search warning:', err);
+      } else {
+        errors.push({
+          sourceName: 'Web Search Discovery',
+          error: webQuota.reason || 'Web Search daily quota reached or unavailable on Free tier. Scanned RSS feeds only.',
+          timestamp: new Date().toISOString()
+        });
       }
     }
 
@@ -1045,6 +1301,9 @@ export async function executeAutoHuntRun(options?: {
       discoveryMode: autoSettings.sources.web ? 'rss_web' : 'rss_only'
     });
 
+    // Record news_hunts quota only after successful execution
+    incrementUsage('news_hunts');
+
     return {
       success: true,
       result,
@@ -1054,6 +1313,16 @@ export async function executeAutoHuntRun(options?: {
       errors,
       highPriorityStories
     };
+  } catch (err: any) {
+    // Prevent immediate retry loop: postpone next run by 15 mins (Requirement #7, #10)
+    try {
+      const autoSettings = options?.autoHuntSettings || loadAutoHuntSettings();
+      saveAutoHuntSettings({
+        ...autoSettings,
+        nextHuntTimestamp: new Date(Date.now() + 15 * 60 * 1000).toISOString()
+      });
+    } catch {}
+    throw err;
   } finally {
     isHuntExecutionInProgress = false;
   }
