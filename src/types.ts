@@ -5,7 +5,7 @@ export type PlatformId =
   | 'tiktok' 
   | 'youtube' 
   | 'twitter' 
-  | 'whatsapp'
+  | 'threads'
   | 'facebook'; // backwards-compatible alias
 
 export type PostStatus = 
@@ -33,6 +33,7 @@ export type DestinationContentType =
   | 'video' 
   | 'short' 
   | 'tweet' 
+  | 'thread'
   | 'message';
 
 export interface ShareSessionDestination {
@@ -82,7 +83,7 @@ export interface PlatformConfig {
   deepLinkScheme: string;
   webShareUrl?: (text: string, mediaUrl?: string) => string;
   apiPublishSupported: boolean;
-  defaultStatus: 'Connected' | 'Not Connected' | 'Authorization Required' | 'Unavailable';
+  defaultStatus: 'Connected' | 'Not Connected' | 'Authorization Required' | 'Unavailable' | 'Manual Share' | 'Ready for Manual Share';
 }
 
 export interface MediaItem {
@@ -172,6 +173,7 @@ export interface ContentSettings {
     tiktok: number;
     youtube: number;
     twitter: number;
+    threads?: number;
   };
 }
 
@@ -243,7 +245,7 @@ export interface AppSettings {
   isExpoGoMode: boolean; // Expo Go compatibility flag
   hasDevBuild: boolean;
   defaultHashtags: string[];
-  theme: 'dark' | 'light' | 'system';
+  theme: 'dark' | 'light' | 'lollipop' | 'system';
 
   // Global App Settings & Control Center Extensions
   appName?: string;
@@ -269,47 +271,67 @@ export interface GoogleDriveFile {
 }
 
 // Platform Account Items for Multiple Accounts Support
-export interface FacebookPageAccount {
+export type AccountConnectionStatus =
+  | 'Not Connected'
+  | 'Ready for Manual Share'
+  | 'Saved Profile Link'
+  | 'Manual Share'
+  | 'Connected';
+
+export interface AccountBaseMetadata {
+  notes?: string;
+  enabled?: boolean;
+  connectionStatus?: AccountConnectionStatus;
+  isExamplePlaceholder?: boolean;
+}
+
+export interface FacebookPageAccount extends AccountBaseMetadata {
   id: string;
   pageName: string;
   pageUrl: string;
+  pageId?: string;
 }
 
-export interface FacebookProfileAccount {
+export interface FacebookProfileAccount extends AccountBaseMetadata {
   id: string;
   profileName: string;
   profileUrl: string;
+  profileId?: string;
 }
 
-export interface InstagramAccount {
+export interface InstagramAccount extends AccountBaseMetadata {
   id: string;
+  displayName?: string;
   username: string;
   profileUrl: string;
 }
 
-export interface TikTokAccount {
+export interface TikTokAccount extends AccountBaseMetadata {
   id: string;
+  displayName?: string;
   username: string;
   profileUrl: string;
 }
 
-export interface YouTubeChannelAccount {
+export interface YouTubeChannelAccount extends AccountBaseMetadata {
   id: string;
   channelName: string;
+  channelId?: string;
   channelUrl: string;
 }
 
-export interface TwitterAccount {
+export interface TwitterAccount extends AccountBaseMetadata {
   id: string;
+  displayName?: string;
   username: string;
   profileUrl: string;
 }
 
-export interface WhatsAppAccount {
+export interface ThreadsAccount extends AccountBaseMetadata {
   id: string;
-  name: string; // Account/Contact Name
-  phoneNumber: string;
-  waLink?: string;
+  displayName?: string;
+  username: string;
+  profileUrl: string;
 }
 
 export interface UserSocialAccounts {
@@ -319,7 +341,7 @@ export interface UserSocialAccounts {
   tiktok: TikTokAccount[];
   youtube: YouTubeChannelAccount[];
   twitter: TwitterAccount[];
-  whatsapp: WhatsAppAccount[];
+  threads: ThreadsAccount[];
 }
 
 export interface SocialAccountDestination {
@@ -329,58 +351,92 @@ export interface SocialAccountDestination {
   identifier?: string;
   url?: string;
   secondaryInfo?: string;
+  notes?: string;
+  enabled?: boolean;
+  connectionStatus?: AccountConnectionStatus;
+  isExamplePlaceholder?: boolean;
   isConfigured?: boolean;
 }
 
+/**
+ * Editable sample/example accounts displayed initially.
+ * Sample URLs are empty strings so the input fields display platform-specific placeholder text
+ * rather than locked values.
+ */
 export const DEFAULT_USER_ACCOUNTS: UserSocialAccounts = {
   facebook_page: [
     {
       id: 'fb-page-1',
-      pageName: 'Jangari Adventure & Fishing',
-      pageUrl: 'https://facebook.com/jangarioutdoor'
+      pageName: 'Example Facebook Page',
+      pageUrl: '',
+      enabled: true,
+      connectionStatus: 'Ready for Manual Share',
+      isExamplePlaceholder: true
     }
   ],
   facebook_profile: [
     {
       id: 'fb-prof-1',
-      profileName: 'Budi Santoso (Personal)',
-      profileUrl: 'https://facebook.com/budi.santoso.angler'
+      profileName: 'Example Facebook Profile',
+      profileUrl: '',
+      enabled: true,
+      connectionStatus: 'Ready for Manual Share',
+      isExamplePlaceholder: true
     }
   ],
   instagram: [
     {
       id: 'ig-acc-1',
-      username: 'jangari_venture',
-      profileUrl: 'https://instagram.com/jangari_venture'
+      displayName: 'Example Instagram Account',
+      username: '',
+      profileUrl: '',
+      enabled: true,
+      connectionStatus: 'Ready for Manual Share',
+      isExamplePlaceholder: true
     }
   ],
   tiktok: [
     {
       id: 'tt-acc-1',
-      username: 'jangari_official',
-      profileUrl: 'https://tiktok.com/@jangari_official'
+      displayName: 'Example TikTok Account',
+      username: '',
+      profileUrl: '',
+      enabled: true,
+      connectionStatus: 'Ready for Manual Share',
+      isExamplePlaceholder: true
     }
   ],
   youtube: [
     {
       id: 'yt-channel-1',
-      channelName: 'Jangari Fishing TV',
-      channelUrl: 'https://youtube.com/@jangarifishing'
+      channelName: 'Example YouTube Channel',
+      channelId: '',
+      channelUrl: '',
+      enabled: true,
+      connectionStatus: 'Ready for Manual Share',
+      isExamplePlaceholder: true
     }
   ],
   twitter: [
     {
       id: 'x-acc-1',
-      username: 'jangariview',
-      profileUrl: 'https://x.com/jangariview'
+      displayName: 'Example X Account',
+      username: '',
+      profileUrl: '',
+      enabled: true,
+      connectionStatus: 'Ready for Manual Share',
+      isExamplePlaceholder: true
     }
   ],
-  whatsapp: [
+  threads: [
     {
-      id: 'wa-acc-1',
-      name: 'Admin Pemancingan',
-      phoneNumber: '+6281234567890',
-      waLink: 'https://wa.me/6281234567890'
+      id: 'th-acc-1',
+      displayName: 'Example Threads Account',
+      username: '',
+      profileUrl: '',
+      enabled: true,
+      connectionStatus: 'Ready for Manual Share',
+      isExamplePlaceholder: true
     }
   ]
 };
@@ -390,26 +446,15 @@ export interface SocialGroup {
   name: string;
   description?: string;
   destinationIds: string[];
+  platforms?: PlatformId[];
+  accountIds?: string[];
+  isExamplePlaceholder?: boolean;
+  isUserCreated?: boolean;
   createdAt: string;
   updatedAt?: string;
 }
 
-export const DEFAULT_SOCIAL_GROUPS: SocialGroup[] = [
-  {
-    id: 'group-ngabloeventure',
-    name: 'NGABLOEVENTURE',
-    description: 'Outdoor fishing & adventure multi-channel brand',
-    destinationIds: ['fb-page-1', 'fb-prof-1', 'ig-acc-1', 'tt-acc-1'],
-    createdAt: '2026-01-01T00:00:00.000Z'
-  },
-  {
-    id: 'group-persib',
-    name: 'PERSIB',
-    description: 'Supporter & football fanbase network',
-    destinationIds: ['fb-page-1', 'fb-prof-1', 'yt-channel-1'],
-    createdAt: '2026-01-01T00:00:00.000Z'
-  }
-];
+export const DEFAULT_SOCIAL_GROUPS: SocialGroup[] = [];
 
 // ==========================================
 // NEWS HUNTER INTERFACES & TYPES
@@ -523,13 +568,14 @@ export interface NewsAiRewrite {
   youtubeTitle: string;
   youtubeDescription: string;
   xPost: string;
-  whatsappMessage: string;
+  threadsPost?: string;
   hashtags: {
     facebook: string[];
     instagram: string[];
     tiktok: string[];
     youtube: string[];
     x: string[];
+    threads?: string[];
   };
 }
 
@@ -793,7 +839,7 @@ export const DEFAULT_RSS_SOURCES: NewsRssSource[] = [
 // ==========================================
 // NAVIGATION TAB TYPE
 // ==========================================
-export type NavigationTab = 'home' | 'news' | 'create' | 'queue' | 'drafts' | 'history' | 'settings';
+export type NavigationTab = 'home' | 'news' | 'create' | 'queue' | 'history' | 'settings';
 
 // ==========================================
 // CONTENT QUEUE INTERFACES & TYPES
@@ -801,11 +847,15 @@ export type NavigationTab = 'home' | 'news' | 'create' | 'queue' | 'drafts' | 'h
 
 export type QueueItemStatus = 
   | 'scheduled'   // Awaiting scheduled date/time
-  | 'queued'      // Ready in pipeline for manual/auto cross-posting
+  | 'waiting'     // Waiting for scheduled time
+  | 'ready'       // Ready for manual share
+  | 'completed'   // Successfully completed sharing
+  | 'failed'      // Encountered an issue
+  | 'skipped'     // Skipped by user
+  | 'queued'      // Ready in pipeline for manual cross-posting
   | 'publishing'  // Currently undergoing cross-post share session
   | 'published'   // Successfully completed sharing
-  | 'paused'      // Temporarily held back by user
-  | 'failed';     // Encountered an issue or skipped
+  | 'paused';     // Temporarily held back by user
 
 export type QueueItemPriority = 
   | 'urgent' 
@@ -857,41 +907,41 @@ export const SAMPLE_QUEUE_ITEMS: ContentQueueItem[] = [
   {
     id: 'queue-sample-1',
     postId: 'post-q1',
-    title: 'Spot Mancing Waduk Jangari Paling Rekomended',
-    caption: 'Berikut 5 rekomendasi lapak mancing apung terbaik di Jangari Cianjur dengan tarikan ikan nila badot yang melimpah! Jangan lupa persiapkan umpan racikan jitu.',
-    description: 'Panduan lengkap spot mancing waduk Jangari Jawa Barat untuk akhir pekan.',
-    hashtags: ['#Jangari', '#MancingMania', '#NilaBadot', '#SpotMancing', '#Cianjur'],
-    callToAction: 'Simpan postingan ini untuk referensi liburan mancing kalian!',
+    title: 'Weekly Brand & Product Highlights',
+    caption: 'Here are our top highlights and community updates for this week! Save this post for quick reference.',
+    description: 'Complete weekly highlight guide for our community across channels.',
+    hashtags: ['#BrandUpdate', '#Community', '#CreatorTips', '#SocialMedia', '#Highlights'],
+    callToAction: 'Save and share this post with your network!',
     media: {
       id: 'media-q1',
-      name: 'Spot Jangari Pagi.jpg',
+      name: 'Sample Highlight Image.jpg',
       type: 'image',
       url: 'https://images.unsplash.com/photo-1544551763-46a013bb70d5?w=800&auto=format&fit=crop&q=80',
       source: 'sample'
     },
     selectedPlatforms: ['facebook_page', 'instagram', 'tiktok', 'youtube'],
-    selectedGroupId: 'group-ngabloeventure',
+    selectedGroupId: null,
     scheduledAt: new Date(Date.now() + 1000 * 60 * 60 * 4).toISOString(),
     status: 'scheduled',
     priority: 'high',
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     metadata: {
-      category: 'Wisata & Hobi',
+      category: 'Brand & Lifestyle',
       source: 'manual',
-      notes: 'Post di jam istirahat siang untuk engagement optimal',
-      campaignName: 'Weekend Fishing 2026'
+      notes: 'Schedule for midday peak engagement',
+      campaignName: 'Weekly Campaign 2026'
     }
   },
   {
     id: 'queue-sample-2',
     postId: 'post-q2',
-    title: 'Breaking News: Update Terkini Jadwal Laga Pekan Ini',
-    caption: 'Info penting untuk seluruh Bobotoh! Simak persiapan tim dan jadwal laga besar akhir pekan ini.',
-    description: 'Update kabar latihan dan persiapan taktik jelang pertandingan akbar.',
-    hashtags: ['#Persib', '#Bobotoh', '#SepakbolaIndonesia', '#JadwalBola'],
-    selectedPlatforms: ['facebook_page', 'facebook_profile', 'twitter', 'whatsapp'],
-    selectedGroupId: 'group-persib',
+    title: 'Breaking News: Matchday & Schedule Update',
+    caption: 'Important update for supporters! Check out the full matchday preparation and kickoff schedule for this weekend.',
+    description: 'Latest training and tactical preparation ahead of the weekend fixture.',
+    hashtags: ['#Football', '#Matchday', '#SportsUpdate', '#Schedule'],
+    selectedPlatforms: ['facebook_page', 'facebook_profile', 'twitter', 'threads'],
+    selectedGroupId: null,
     scheduledAt: new Date(Date.now() + 1000 * 60 * 60 * 18).toISOString(),
     status: 'queued',
     priority: 'urgent',
@@ -900,25 +950,25 @@ export const SAMPLE_QUEUE_ITEMS: ContentQueueItem[] = [
     metadata: {
       category: 'Sepakbola',
       source: 'news_hunter',
-      notes: 'Prioritas tinggi menjelang matchday'
+      notes: 'High priority ahead of matchday'
     }
   },
   {
     id: 'queue-sample-3',
     postId: 'post-q3',
-    title: 'Tips Merawat Joran & Reel Pancing Air Tawar',
-    caption: 'Setelah mancing di waduk atau kolam, jangan lupa bersihkan joran & reel dengan air tawar hangat. Ini langkah mudah agar gear pancing tetap awet dan tarikan tetap smooth!',
-    hashtags: ['#TipsMancing', '#FishingGear', '#ReelPancing', '#HobiMancing'],
-    callToAction: 'Bagikan ke teman-teman pemancing kalian!',
+    title: 'Behind the Scenes: Daily Creator Workflow Tips',
+    caption: 'Organizing your content calendar and multi-platform captions saves hours every week. Here is our step-by-step workflow!',
+    hashtags: ['#CreatorWorkflow', '#Productivity', '#SocialTips', '#ContentStrategy'],
+    callToAction: 'Share with your fellow creators!',
     media: {
       id: 'media-q3',
-      name: 'Reel Maintenance.jpg',
+      name: 'Creator Workflow.jpg',
       type: 'image',
       url: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=800&auto=format&fit=crop&q=80',
       source: 'sample'
     },
     selectedPlatforms: ['facebook_page', 'instagram', 'tiktok'],
-    selectedGroupId: 'group-ngabloeventure',
+    selectedGroupId: null,
     scheduledAt: new Date(Date.now() + 1000 * 60 * 60 * 36).toISOString(),
     status: 'scheduled',
     priority: 'medium',
@@ -927,7 +977,7 @@ export const SAMPLE_QUEUE_ITEMS: ContentQueueItem[] = [
     metadata: {
       category: 'Tips & Tutorial',
       source: 'manual',
-      campaignName: 'Edukasi Pemancing'
+      campaignName: 'Creator Education'
     }
   },
   {

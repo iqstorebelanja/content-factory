@@ -265,7 +265,7 @@ export function createRecoverySnapshot(label: string = 'Safety Snapshot'): Recov
                     (acc.tiktok?.length || 0) + 
                     (acc.youtube?.length || 0) + 
                     (acc.twitter?.length || 0) + 
-                    (acc.whatsapp?.length || 0);
+                    (acc.threads?.length || 0);
   }
 
   const snapshot: RecoverySnapshot = {
@@ -362,7 +362,7 @@ export function validateBackupFile(fileContent: any): BackupValidationResult {
                     (acc.tiktok?.length || 0) + 
                     (acc.youtube?.length || 0) + 
                     (acc.twitter?.length || 0) + 
-                    (acc.whatsapp?.length || 0);
+                    (acc.threads?.length || 0);
   }
 
   // Normalize missing fields for older versions without throwing away user data, and sanitize any imported payload
@@ -537,7 +537,7 @@ export function restoreBackupMerge(
       tiktok: [...(current.data.accounts.tiktok || [])],
       youtube: [...(current.data.accounts.youtube || [])],
       twitter: [...(current.data.accounts.twitter || [])],
-      whatsapp: [...(current.data.accounts.whatsapp || [])]
+      threads: [...(current.data.accounts.threads || [])]
     };
 
     const addAccountIfNew = (list: any[], newItem: any) => {
@@ -552,7 +552,7 @@ export function restoreBackupMerge(
     (bData.accounts.tiktok || []).forEach(a => addAccountIfNew(mergedAccounts.tiktok, a));
     (bData.accounts.youtube || []).forEach(a => addAccountIfNew(mergedAccounts.youtube, a));
     (bData.accounts.twitter || []).forEach(a => addAccountIfNew(mergedAccounts.twitter, a));
-    (bData.accounts.whatsapp || []).forEach(a => addAccountIfNew(mergedAccounts.whatsapp, a));
+    (bData.accounts.threads || []).forEach(a => addAccountIfNew(mergedAccounts.threads, a));
 
     // B. Merge Groups
     const mergedGroups = [...current.data.groups];
@@ -982,7 +982,7 @@ export function getStorageUsageSummary() {
                     (acc.tiktok?.length || 0) + 
                     (acc.youtube?.length || 0) + 
                     (acc.twitter?.length || 0) + 
-                    (acc.whatsapp?.length || 0);
+                    (acc.threads?.length || 0);
   }
 
   // Calculate approximate storage in MB

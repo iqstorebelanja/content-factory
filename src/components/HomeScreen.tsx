@@ -21,10 +21,11 @@ import { PLATFORMS } from '../data/platforms';
 interface HomeProps {
   onCreatePost: () => void;
   onSelectTab: (tab: NavigationTab) => void;
+  onOpenSettingsSubTab?: (subTab: 'accounts' | 'groups') => void;
   onOpenDriveModal: () => void;
   history: SocialPost[];
-  drafts: SocialPost[];
   queueCount?: number;
+  groupsCount?: number;
   isDriveConnected: boolean;
   driveUserEmail?: string;
   isExpoGoMode: boolean;
@@ -33,10 +34,11 @@ interface HomeProps {
 export const HomeScreen: React.FC<HomeProps> = ({
   onCreatePost,
   onSelectTab,
+  onOpenSettingsSubTab,
   onOpenDriveModal,
   history,
-  drafts,
   queueCount = 0,
+  groupsCount = 0,
   isDriveConnected,
   driveUserEmail,
   isExpoGoMode
@@ -77,7 +79,7 @@ export const HomeScreen: React.FC<HomeProps> = ({
           <div>
             <h1 className="text-2xl font-bold tracking-tight">Social Share Scheduler</h1>
             <p className="text-slate-300 text-sm mt-1">
-              Create ONE post, preview each network, and manually cross-post to Facebook Page, Instagram, TikTok, YouTube, X, and WhatsApp.
+              Create ONE post, preview each network, and manually cross-post to Facebook Page, Instagram, TikTok, YouTube, X, and Threads.
             </p>
           </div>
 
@@ -152,17 +154,17 @@ export const HomeScreen: React.FC<HomeProps> = ({
         </div>
 
         <div 
-          onClick={() => onSelectTab('drafts')}
+          onClick={() => onOpenSettingsSubTab ? onOpenSettingsSubTab('groups') : onSelectTab('settings')}
           className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-3 cursor-pointer hover:border-indigo-500/40 transition-colors text-center"
         >
           <div className="flex items-center justify-center gap-1 text-slate-500 dark:text-slate-400 text-[11px] font-medium mb-0.5">
-            <FileText className="w-3 h-3 text-amber-500" />
-            <span>Drafts</span>
+            <Layers className="w-3 h-3 text-purple-500" />
+            <span>Groups</span>
           </div>
           <div className="text-xl font-bold text-slate-900 dark:text-white">
-            {drafts.length}
+            {groupsCount}
           </div>
-          <div className="text-[9px] text-slate-400 mt-0.5 truncate">Saved</div>
+          <div className="text-[9px] text-slate-400 mt-0.5 truncate">In Settings</div>
         </div>
 
         <div 
@@ -190,7 +192,7 @@ export const HomeScreen: React.FC<HomeProps> = ({
             Target Platforms (6 Supported)
           </h2>
           <button 
-            onClick={() => onSelectTab('settings')}
+            onClick={() => onOpenSettingsSubTab ? onOpenSettingsSubTab('accounts') : onSelectTab('settings')}
             className="text-xs text-indigo-600 dark:text-indigo-400 font-medium hover:underline"
           >
             Manage Accounts
@@ -198,7 +200,7 @@ export const HomeScreen: React.FC<HomeProps> = ({
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-          {(['facebook_page', 'instagram', 'tiktok', 'youtube', 'twitter', 'whatsapp'] as PlatformId[]).map(pId => {
+          {(['facebook_page', 'instagram', 'tiktok', 'youtube', 'twitter', 'threads'] as PlatformId[]).map(pId => {
             const platform = PLATFORMS[pId];
             if (!platform) return null;
             return (

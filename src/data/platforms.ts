@@ -17,7 +17,7 @@ export const PLATFORMS: Record<PlatformId, PlatformConfig> = {
     deepLinkScheme: 'fb-pages://',
     webShareUrl: (text) => `https://business.facebook.com/latest/composer?text=${encodeURIComponent(text)}`,
     apiPublishSupported: false,
-    defaultStatus: 'Connected'
+    defaultStatus: 'Manual Share'
   },
   facebook_profile: {
     id: 'facebook_profile',
@@ -35,7 +35,7 @@ export const PLATFORMS: Record<PlatformId, PlatformConfig> = {
     deepLinkScheme: 'fb://facewebmodal/f?href=',
     webShareUrl: (text) => `https://www.facebook.com/sharer/sharer.php?quote=${encodeURIComponent(text)}`,
     apiPublishSupported: false,
-    defaultStatus: 'Connected'
+    defaultStatus: 'Manual Share'
   },
   instagram: {
     id: 'instagram',
@@ -53,7 +53,7 @@ export const PLATFORMS: Record<PlatformId, PlatformConfig> = {
     deepLinkScheme: 'instagram://share',
     webShareUrl: () => `https://www.instagram.com/`,
     apiPublishSupported: false,
-    defaultStatus: 'Connected'
+    defaultStatus: 'Manual Share'
   },
   tiktok: {
     id: 'tiktok',
@@ -71,7 +71,7 @@ export const PLATFORMS: Record<PlatformId, PlatformConfig> = {
     deepLinkScheme: 'snssdk1180://',
     webShareUrl: () => `https://www.tiktok.com/upload`,
     apiPublishSupported: false,
-    defaultStatus: 'Connected'
+    defaultStatus: 'Manual Share'
   },
   youtube: {
     id: 'youtube',
@@ -89,7 +89,7 @@ export const PLATFORMS: Record<PlatformId, PlatformConfig> = {
     deepLinkScheme: 'vnd.youtube://',
     webShareUrl: () => `https://studio.youtube.com/channel/upload`,
     apiPublishSupported: false,
-    defaultStatus: 'Connected'
+    defaultStatus: 'Manual Share'
   },
   twitter: {
     id: 'twitter',
@@ -107,25 +107,25 @@ export const PLATFORMS: Record<PlatformId, PlatformConfig> = {
     deepLinkScheme: 'twitter://post?message=',
     webShareUrl: (text) => `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`,
     apiPublishSupported: false,
-    defaultStatus: 'Connected'
+    defaultStatus: 'Manual Share'
   },
-  whatsapp: {
-    id: 'whatsapp',
-    name: 'WhatsApp',
-    badge: 'Chat & Status',
-    color: '#25D366',
-    bgColor: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30',
-    accentColor: '#25D366',
-    iconName: 'message-circle',
+  threads: {
+    id: 'threads',
+    name: 'Threads',
+    badge: 'Threads Post',
+    color: '#101010',
+    bgColor: 'bg-neutral-500/10 text-neutral-800 dark:text-neutral-200 border-neutral-500/30',
+    accentColor: '#101010',
+    iconName: 'at-sign',
     supportsImage: true,
     supportsVideo: true,
     maxHashtags: 5,
-    packageName: 'com.whatsapp',
-    playStoreUrl: 'https://play.google.com/store/apps/details?id=com.whatsapp',
-    deepLinkScheme: 'whatsapp://send?text=',
-    webShareUrl: (text) => `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`,
+    packageName: 'com.instagram.barcelona',
+    playStoreUrl: 'https://play.google.com/store/apps/details?id=com.instagram.barcelona',
+    deepLinkScheme: 'barcelona://create?text=',
+    webShareUrl: (text) => `https://www.threads.com/intent/post?text=${encodeURIComponent(text)}`,
     apiPublishSupported: false,
-    defaultStatus: 'Connected'
+    defaultStatus: 'Manual Share'
   },
   facebook: {
     id: 'facebook',
@@ -143,14 +143,14 @@ export const PLATFORMS: Record<PlatformId, PlatformConfig> = {
     deepLinkScheme: 'fb://facewebmodal/f?href=',
     webShareUrl: (text) => `https://www.facebook.com/sharer/sharer.php?quote=${encodeURIComponent(text)}`,
     apiPublishSupported: false,
-    defaultStatus: 'Connected'
+    defaultStatus: 'Manual Share'
   }
 };
 
 export const SAMPLE_MEDIA_LIBRARY = [
   {
     id: 'sample-1',
-    name: 'Jangari Reservoir Fishing Spot.jpg',
+    name: 'Sample Landscape Photo (16:9).jpg',
     type: 'image' as const,
     url: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=1080&q=80',
     sizeBytes: 1024 * 840,
@@ -160,7 +160,7 @@ export const SAMPLE_MEDIA_LIBRARY = [
   },
   {
     id: 'sample-2',
-    name: 'Freshwater Angler Catch (Vertical).jpg',
+    name: 'Sample Vertical Story Photo (9:16).jpg',
     type: 'image' as const,
     url: 'https://images.unsplash.com/photo-1544551763-46a013bb70d5?auto=format&fit=crop&w=720&q=80',
     sizeBytes: 1024 * 1250,
@@ -170,7 +170,7 @@ export const SAMPLE_MEDIA_LIBRARY = [
   },
   {
     id: 'sample-video-1',
-    name: 'Jangari Lake Scenic Drone Reel (9:16).mp4',
+    name: 'Sample Vertical Short Video (9:16).mp4',
     type: 'video' as const,
     url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
     sizeBytes: 1024 * 1024 * 14,

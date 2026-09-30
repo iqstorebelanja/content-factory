@@ -144,7 +144,10 @@ async function postBackendJson<T = any>(
     };
   } catch (err: any) {
     clearTimeout(timer);
-    const isAbort = err?.name === 'AbortError';
+    const isAbort =
+      err?.name === 'AbortError' ||
+      err?.name === 'TimeoutError' ||
+      /aborted/i.test(String(err?.message || ''));
     const safeMsg = isAbort
       ? 'Request timed out. Please check your connection and try again.'
       : sanitizeUserFacingError(err);
@@ -152,7 +155,7 @@ async function postBackendJson<T = any>(
     errorReporter.report(
       isAbort ? 'API_TIMEOUT' : 'API_NETWORK_ERR',
       featureName,
-      err?.message || 'Network request failed',
+      isAbort ? `Request timed out after ${timeoutMs}ms` : (err?.message || 'Network request failed'),
       safeMsg,
       true
     );

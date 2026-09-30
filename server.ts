@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import crypto from 'crypto';
-import { GoogleGenAI, Type } from '@google/genai';
+import { GoogleGenAI, ThinkingLevel, Type } from '@google/genai';
 import express from 'express';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
@@ -53,6 +53,15 @@ function getGeminiClient(): GoogleGenAI {
     });
   }
   return geminiClient;
+}
+
+async function generateContentWithTimeout(ai: GoogleGenAI, params: any, timeoutMs = 8000): Promise<any> {
+  return Promise.race([
+    ai.models.generateContent(params),
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error(`Gemini request timed out after ${timeoutMs}ms`)), timeoutMs)
+    )
+  ]);
 }
 
 // Health & Cost Control check
@@ -688,12 +697,15 @@ function generatePlatformSpecificFallback(
     };
   }
 
-  if (platforms.includes('whatsapp')) {
-    outputs['whatsapp'] = {
+  if (platforms.includes('threads')) {
+    outputs['threads'] = {
       caption: isJangari || isFishing
         ? `Halo kawan-kawan! Mau share momen seru trip mancing di Waduk Jangari, Jawa Barat nih. Pemandangannya adem dan spotnya asyik banget buat kumpul sambil mancing.`
         : `Halo semuanya! Mau berbagi info dan dokumentasi seru tentang ${cleanTopic}. Semoga bisa jadi inspirasi ya!`,
-      callToAction: 'Kira-kira kapan kita agendakan jalan atau mancing bareng lagi? Kabari ya!'
+      callToAction: 'Kira-kira kapan kita agendakan jalan atau mancing bareng lagi? Kabari ya!',
+      hashtags: isJangari || isFishing
+        ? ['#Jangari', '#Mancing', '#ThreadsID']
+        : ['#Explore', '#Update', '#Threads']
     };
   }
 
@@ -706,7 +718,7 @@ app.post('/api/ai/generate-platform-content', async (req, res) => {
 
   const targetPlatforms: string[] = singlePlatform 
     ? [singlePlatform] 
-    : (Array.isArray(platforms) && platforms.length > 0 ? platforms : ['facebook_page', 'facebook_profile', 'instagram', 'tiktok', 'youtube', 'twitter', 'whatsapp']);
+    : (Array.isArray(platforms) && platforms.length > 0 ? platforms : ['facebook_page', 'facebook_profile', 'instagram', 'tiktok', 'youtube', 'twitter', 'threads']);
 
   try {
     const ai = getGeminiClient();
@@ -759,9 +771,10 @@ ${fbProfileRule}
 6. TWITTER (X):
    - "caption": concise post suitable for X (must stay under 240 characters)
    - "hashtags": up to 3 hashtags with #
-7. WHATSAPP:
-   - "caption": natural, friendly message suitable for broadcasting or group sharing
-   - "callToAction": optional closing call-to-action
+7. THREADS:
+   - "caption": conversational post suitable for Threads (under 450 characters)
+   - "callToAction": optional closing question or call-to-action
+   - "hashtags": up to 5 hashtags with #
 
 AI SAFETY & ACCURACY RULES:
 - Do NOT invent facts, fake quotes, or false claims about the attached media.
@@ -770,9 +783,8 @@ AI SAFETY & ACCURACY RULES:
 - Generate outputs ONLY for the requested platforms: ${targetPlatforms.join(', ')}.`;
 
     const candidateModels = [
-      'gemini-3.8-flash',
       'gemini-3.1-flash-lite',
-      'gemini-flash-latest'
+      'gemini-3.8-flash'
     ];
 
     let response: any = null;
@@ -780,17 +792,22 @@ AI SAFETY & ACCURACY RULES:
 
     for (const model of candidateModels) {
       try {
-        response = await ai.models.generateContent({
-          model,
-          contents: prompt,
-          config: {
-            responseMimeType: 'application/json'
-          }
-        });
+        response = await generateContentWithTimeout(
+          ai,
+          {
+            model,
+            contents: prompt,
+            config: {
+              responseMimeType: 'application/json',
+              ...(model === 'gemini-3.8-flash' ? { thinkingConfig: { thinkingLevel: ThinkingLevel.LOW } } : {})
+            }
+          },
+          8000
+        );
         if (response?.text) break;
       } catch (err: any) {
         lastError = err;
-        await new Promise(r => setTimeout(r, 200));
+        await new Promise(r => setTimeout(r, 150));
       }
     }
 
@@ -874,59 +891,61 @@ Important Rules:
     // Try multiple model tiers starting with the lightweight, fastest model to prevent 503 spikes
     const candidateModels = [
       'gemini-3.1-flash-lite',
-      'gemini-3.6-flash',
-      'gemini-3.8-flash',
-      'gemini-flash-latest'
+      'gemini-3.8-flash'
     ];
     let lastError: any = null;
     let response: any = null;
 
     for (const model of candidateModels) {
       try {
-        response = await ai.models.generateContent({
-          model,
-          contents: prompt,
-          config: {
-            responseMimeType: 'application/json',
-            responseSchema: {
-              type: Type.OBJECT,
-              properties: {
-                title: {
-                  type: Type.STRING,
-                  description: 'Short catchy title (e.g. Jangari, Surga Pemancing di Jawa Barat)',
-                },
-                caption: {
-                  type: Type.STRING,
-                  description: 'Engaging conversational caption (2-3 sentences)',
-                },
-                description: {
-                  type: Type.STRING,
-                  description: 'Full detailed description suitable for YouTube, Facebook Page or blog notes',
-                },
-                callToAction: {
-                  type: Type.STRING,
-                  description: 'Direct, punchy CTA (e.g. Tonton video selengkapnya dan bagikan ke teman mancingmu!)',
-                },
-                hashtags: {
-                  type: Type.ARRAY,
-                  items: {
+        response = await generateContentWithTimeout(
+          ai,
+          {
+            model,
+            contents: prompt,
+            config: {
+              responseMimeType: 'application/json',
+              ...(model === 'gemini-3.8-flash' ? { thinkingConfig: { thinkingLevel: ThinkingLevel.LOW } } : {}),
+              responseSchema: {
+                type: Type.OBJECT,
+                properties: {
+                  title: {
                     type: Type.STRING,
+                    description: 'Short catchy title (e.g. Jangari, Surga Pemancing di Jawa Barat)',
                   },
-                  description: 'Up to 5 relevant hashtags including the # symbol',
+                  caption: {
+                    type: Type.STRING,
+                    description: 'Engaging conversational caption (2-3 sentences)',
+                  },
+                  description: {
+                    type: Type.STRING,
+                    description: 'Full detailed description suitable for YouTube, Facebook Page or blog notes',
+                  },
+                  callToAction: {
+                    type: Type.STRING,
+                    description: 'Direct, punchy CTA (e.g. Tonton video selengkapnya dan bagikan ke teman mancingmu!)',
+                  },
+                  hashtags: {
+                    type: Type.ARRAY,
+                    items: {
+                      type: Type.STRING,
+                    },
+                    description: 'Up to 5 relevant hashtags including the # symbol',
+                  },
                 },
+                required: ['title', 'caption', 'description', 'callToAction', 'hashtags'],
               },
-              required: ['title', 'caption', 'description', 'callToAction', 'hashtags'],
             },
           },
-        });
+          8000
+        );
         if (response?.text) {
           break;
         }
       } catch (err: any) {
         console.warn(`Model ${model} attempt notice:`, err?.message || err);
         lastError = err;
-        // Brief pause before trying next candidate model to ease concurrent request pressure
-        await new Promise(resolve => setTimeout(resolve, 300));
+        await new Promise(resolve => setTimeout(resolve, 150));
       }
     }
 
@@ -1158,16 +1177,24 @@ IMPORTANT:
 ]`;
 
     let response: any = null;
-    try {
-      response = await ai.models.generateContent({
-        model: 'gemini-3.8-flash',
-        contents: prompt,
-        config: {
-          responseMimeType: 'application/json'
-        }
-      });
-    } catch (apiErr) {
-      console.warn('Gemini web-discover call failed:', apiErr);
+    for (const model of ['gemini-3.1-flash-lite', 'gemini-3.8-flash']) {
+      try {
+        response = await generateContentWithTimeout(
+          ai,
+          {
+            model,
+            contents: prompt,
+            config: {
+              responseMimeType: 'application/json',
+              ...(model === 'gemini-3.8-flash' ? { thinkingConfig: { thinkingLevel: ThinkingLevel.LOW } } : {})
+            }
+          },
+          7000
+        );
+        if (response?.text) break;
+      } catch (apiErr: any) {
+        console.warn(`Gemini web-discover (${model}) notice:`, apiErr?.message || apiErr);
+      }
     }
 
     let articles: any[] = [];
@@ -1287,13 +1314,14 @@ STRICT SAFETY & QUALITY RULES:
    - youtubeTitle: clear and engaging video title
    - youtubeDescription: structured summary with key takeaways
    - xPost: punchy tweet STRICTLY UNDER 260 CHARACTERS
-   - whatsappMessage: formatted broadcast message (using *bold*, clean emojis, discussion prompt)
+   - threadsPost: conversational Threads post with engaging discussion prompt
 7. HASHTAGS:
    - facebook: max 5 hashtags
    - instagram: max 10 hashtags
    - tiktok: max 5 hashtags
    - youtube: max 5 hashtags
    - x: max 3 hashtags
+   - threads: max 5 hashtags
 
 STRICT JSON OUTPUT FORMAT:
 {
@@ -1314,26 +1342,32 @@ STRICT JSON OUTPUT FORMAT:
   "youtubeTitle": "...",
   "youtubeDescription": "...",
   "xPost": "...",
-  "whatsappMessage": "...",
+  "threadsPost": "...",
   "hashtags": {
     "facebook": ["#..."],
     "instagram": ["#..."],
     "tiktok": ["#..."],
     "youtube": ["#..."],
-    "x": ["#..."]
+    "x": ["#..."],
+    "threads": ["#..."]
   }
 }`;
 
     let response: any = null;
-    for (const model of ['gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest']) {
+    for (const model of ['gemini-3.1-flash-lite', 'gemini-3.8-flash']) {
       try {
-        response = await ai.models.generateContent({
-          model,
-          contents: prompt,
-          config: {
-            responseMimeType: 'application/json'
-          }
-        });
+        response = await generateContentWithTimeout(
+          ai,
+          {
+            model,
+            contents: prompt,
+            config: {
+              responseMimeType: 'application/json',
+              ...(model === 'gemini-3.8-flash' ? { thinkingConfig: { thinkingLevel: ThinkingLevel.LOW } } : {})
+            }
+          },
+          8500
+        );
         if (response?.text) break;
       } catch (err) {
         await new Promise(r => setTimeout(r, 150));
@@ -1362,6 +1396,7 @@ STRICT JSON OUTPUT FORMAT:
       rewrite.hashtags.tiktok = (rewrite.hashtags.tiktok || []).slice(0, 5);
       rewrite.hashtags.youtube = (rewrite.hashtags.youtube || []).slice(0, 5);
       rewrite.hashtags.x = (rewrite.hashtags.x || []).slice(0, 3);
+      rewrite.hashtags.threads = (rewrite.hashtags.threads || []).slice(0, 5);
     }
     if (rewrite.xPost && rewrite.xPost.length > 270) {
       rewrite.xPost = rewrite.xPost.slice(0, 267) + '...';
@@ -1398,13 +1433,14 @@ function generateNewsRewriteFallback(title: string = '', summary: string = '', c
     youtubeTitle: cleanTitle,
     youtubeDescription: `Rangkuman berita seputar ${cleanTitle}.\n\n${cleanSummary}\n\nKategori: ${cleanCategory}\nJangan lupa like, share, dan subscribe untuk update berikutnya!`,
     xPost: `${cleanTitle.slice(0, 180)} — update berita ${cleanCategory}. Simak fakta selengkapnya.`,
-    whatsappMessage: `*BERITA TERKINI: ${cleanTitle}*\n\n${cleanSummary}\n\nBagikan informasi ini ke grup dan rekan-rekanmu.`,
+    threadsPost: `${cleanTitle}\n\n${cleanSummary}\n\nBagaimana pendapat kalian tentang kabar ini? Yuk diskusi di bawah!`,
     hashtags: {
       facebook: ['#BeritaTerkini', '#Update', `#${cleanCategory.replace(/\s+/g, '')}`, '#KabarHariIni', '#Informasi'],
       instagram: ['#BeritaTerkini', '#KabarTerbaru', '#TrendingNews', '#UpdateHariIni', `#${cleanCategory.replace(/\s+/g, '')}`, '#ViralNews', '#BeritaIndonesia', '#KilasBerita', '#Wawasan', '#Fakta'],
       tiktok: ['#BeritaTerkini', '#UpdateNews', '#ViralHariIni', '#Trending', '#Fakta'],
       youtube: ['#BeritaTerkini', '#TrendingNews', '#Update', '#News', '#KabarHariIni'],
-      x: ['#BeritaTerkini', '#Update', '#News']
+      x: ['#BeritaTerkini', '#Update', '#News'],
+      threads: ['#BeritaTerkini', '#ThreadsID', `#${cleanCategory.replace(/\s+/g, '')}`, '#Update', '#Diskusi']
     }
   };
 }

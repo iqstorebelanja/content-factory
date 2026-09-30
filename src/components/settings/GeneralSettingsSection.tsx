@@ -1,5 +1,5 @@
 import React from 'react';
-import { Globe, Clock, Moon, Sun, Monitor, Compass, Sparkles } from 'lucide-react';
+import { Globe, Clock, Moon, Sun, Monitor, Compass, Sparkles, Palette } from 'lucide-react';
 import { AppSettings } from '../../types';
 import { DisplayLanguageDropdown } from './DisplayLanguageDropdown';
 
@@ -75,29 +75,38 @@ export const GeneralSettingsSection: React.FC<GeneralSettingsSectionProps> = ({
               Color Theme
             </label>
             <span className="text-[11px] text-slate-500 dark:text-slate-400">
-              Select your interface color scheme
+              Select your interface color scheme (Dark, Light, Lollipop Red-White, or System)
             </span>
           </div>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             {[
               { id: 'dark', label: 'Dark', icon: Moon },
               { id: 'light', label: 'Light', icon: Sun },
+              { id: 'lollipop', label: 'Lollipop', icon: Palette },
               { id: 'system', label: 'System', icon: Monitor }
             ].map((t) => {
               const Icon = t.icon;
               const isActive = (settings.theme || 'dark') === t.id;
+              const isLollipop = t.id === 'lollipop';
               return (
                 <button
                   key={t.id}
+                  id={`btn-theme-${t.id}`}
                   type="button"
                   onClick={() => onUpdateSettings({ theme: t.id as any })}
                   className={`py-2 px-3 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
                     isActive
-                      ? 'border-indigo-600 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 shadow-sm'
+                      ? isLollipop
+                        ? 'border-red-500 bg-red-50 text-red-700 shadow-sm ring-1 ring-red-400/50'
+                        : 'border-indigo-600 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 shadow-sm'
                       : 'border-slate-200 dark:border-slate-700/60 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
                   }`}
                 >
-                  <Icon className="w-3.5 h-3.5" />
+                  {isLollipop ? (
+                    <span className="w-3.5 h-3.5 rounded-full bg-gradient-to-tr from-[#E53935] via-[#EF4444] to-[#FB7185] border border-white shadow-xs shrink-0" />
+                  ) : (
+                    <Icon className="w-3.5 h-3.5" />
+                  )}
                   <span>{t.label}</span>
                 </button>
               );

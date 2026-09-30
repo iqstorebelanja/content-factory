@@ -331,7 +331,7 @@ export const nativeBridge = {
   async openTikTok(url?: string, deepLink?: string) { return this.openPlatform('tiktok', url, deepLink || 'tiktok://'); },
   async openYouTube(url?: string, deepLink?: string) { return this.openPlatform('youtube', url, deepLink || 'vnd.youtube://'); },
   async openX(url?: string, deepLink?: string) { return this.openPlatform('twitter', url, deepLink || 'twitter://'); },
-  async openWhatsApp(url?: string, deepLink?: string) { return this.openPlatform('whatsapp', url, deepLink || 'whatsapp://'); },
+  async openThreads(url?: string, deepLink?: string) { return this.openPlatform('threads', url, deepLink || 'barcelona://'); },
 
   /**
    * Shareable URI resolution for media

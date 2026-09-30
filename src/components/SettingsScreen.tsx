@@ -51,7 +51,9 @@ import {
   getPlatformTestUrl, 
   getPlatformAccountDisplay,
   getDestinationsForPlatform,
-  sanitizeUrl
+  sanitizeUrl,
+  validatePlatformUrl,
+  extractHandleFromUrl
 } from '../utils/socialAccounts';
 import { 
   loadNewsSources, 
@@ -82,8 +84,9 @@ import { NotificationSettingsSection } from './settings/NotificationSettingsSect
 import { StorageManagementSection } from './settings/StorageManagementSection';
 import { AboutSettingsSection } from './settings/AboutSettingsSection';
 import { SubscriptionPlanSection } from './settings/SubscriptionPlanSection';
+import { DisplayLanguageDropdown } from './settings/DisplayLanguageDropdown';
 import { usePlanContext } from '../contexts/PlanContext';
-import { Crown } from 'lucide-react';
+import { Crown, Palette, Monitor } from 'lucide-react';
 
 interface SettingsScreenProps {
   settings: AppSettings;
@@ -109,6 +112,13 @@ interface SettingsScreenProps {
 }
 
 export type SettingsSubTab = 
+  | 'accounts'
+  | 'groups'
+  | 'theme'
+  | 'language_region'
+  | 'timezone'
+  | 'backup'
+  | 'app_settings'
   | 'general'
   | 'subscription'
   | 'content'
@@ -118,11 +128,8 @@ export type SettingsSubTab =
   | 'sharing'
   | 'media'
   | 'notifications'
-  | 'backup'
   | 'storage'
   | 'about'
-  | 'accounts'
-  | 'groups'
   | 'health'
   | 'rss_sources';
 
@@ -144,33 +151,43 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   drafts,
   history,
   onReloadAllData,
-  initialSubTab = 'general',
+  initialSubTab = 'accounts',
   currentQueueCount = 0,
   currentScheduledCount = 0
 }) => {
   const planState = usePlanContext();
   const [activeSubTab, setActiveSubTab] = useState<SettingsSubTab>(initialSubTab);
+
+  React.useEffect(() => {
+    if (initialSubTab) {
+      setActiveSubTab(initialSubTab);
+    }
+  }, [initialSubTab]);
+
   const [searchQuery, setSearchQuery] = useState('');
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [focusPlatform, setFocusPlatform] = useState<PlatformId | null>(null);
 
   const SEARCHABLE_SETTINGS = useMemo(() => [
-    { id: 'general' as SettingsSubTab, title: 'General Application Settings', category: 'A. General', description: 'App name, timezone (Asia/Jakarta), appearance theme, display language, landing page', keywords: ['app name', 'timezone', 'asia/jakarta', 'theme', 'dark', 'light', 'system', 'language', 'indonesian', 'english', 'landing', 'home', 'news', 'create'] },
-    { id: 'subscription' as SettingsSubTab, title: 'Account & Subscription / Plans & Upgrade', category: '★ Account & Plan', description: 'Guest / Local Mode account status, FREE and PRO plans, billing status, future cloud sync, and ADMIN TEST controls', keywords: ['account', 'account & subscription', 'guest', 'local mode', 'signed in', 'cloud sync', 'plan', 'subscription', 'pro', 'free', 'upgrade', 'usage', 'limits', 'admin test', 'quota', 'pricing', 'billing'] },
-    { id: 'content' as SettingsSubTab, title: 'Content & Hashtag Limits', category: 'B. Content', description: 'Default content formats, per-network hashtag caps, global default hashtags', keywords: ['content', 'hashtag', 'hashtags', 'limits', 'post', 'reel', 'video', 'shorts', 'facebook', 'instagram', 'tiktok', 'youtube', 'x', 'twitter'] },
-    { id: 'news_hunter' as SettingsSubTab, title: 'News Hunter Defaults', category: 'C. News Hunter', description: 'Default category topics, viral hype score filters, media preferences, feed sorting', keywords: ['news', 'news hunter', 'hype', 'viral', 'categories', 'media filter', 'sorting', 'newest', 'sources', 'persib', 'auto hunt'] },
-    { id: 'ai' as SettingsSubTab, title: 'AI Assistant & Tone Settings', category: 'D. AI', description: 'Master AI assistant toggle, tone rewrites, writing style, zero client key exposure', keywords: ['ai', 'gemini', 'assistant', 'rewrite', 'news rewrite', 'writing language', 'writing style', 'tone', 'api keys', 'security'] },
-    { id: 'scheduling' as SettingsSubTab, title: 'Scheduling & In-App Reminders', category: 'E. Scheduling', description: 'Default queue priority, clock synchronization, advance notification lead times', keywords: ['scheduling', 'schedule', 'priority', 'reminder', 'lead time', 'minutes', 'timezone', 'in-app', 'due now'] },
-    { id: 'sharing' as SettingsSubTab, title: 'Sharing Workflow & Order', category: 'F. Sharing', description: 'Pre-launch confirmations, manual completion verification, destination sequence', keywords: ['sharing', 'share', 'order', 'sequence', 'confirm', 'completion', 'published', 'open platform', 'sheet'] },
-    { id: 'media' as SettingsSubTab, title: 'Media Handling & Cache Controls', category: 'G. Media', description: 'Preview dimensions, storage constraints, and temporary cache purge', keywords: ['media', 'preview', 'downloadable', 'size', 'cache', 'clear media cache', 'video', 'image', 'blobs'] },
-    { id: 'notifications' as SettingsSubTab, title: 'Notification & Alert Center', category: 'H. Notifications', description: 'In-app toasts, queue alarms, and native build status info', keywords: ['notification', 'notifications', 'queue reminders', 'alerts', 'share session', 'native', 'android', 'web preview'] },
-    { id: 'backup' as SettingsSubTab, title: 'Data Backup & Recovery', category: 'I. Data & Backup', description: 'Export JSON project, restore with merge conflict check, and Google Drive', keywords: ['backup', 'data', 'export', 'import', 'restore', 'recovery copy', 'integrity check', 'repair', 'google drive'] },
-    { id: 'storage' as SettingsSubTab, title: 'Storage & Cache', category: 'Storage & Cache', description: 'Media cache retention, history retention, daily UTC cleanup schedule, and Clean Now', keywords: ['storage', 'cache', 'media cache', 'history retention', 'clean now', 'clear media cache', 'cleanup time', 'utc', '00:00 utc', 'keep 7 days', 'automatic cleanup'] },
-    { id: 'about' as SettingsSubTab, title: 'About & Subsystems Status', category: 'J. About', description: 'Version number, schema v3, APK readiness, and feature checklist', keywords: ['about', 'version', 'data schema', 'build', 'features', 'cross-posting', 'news hunter', 'apk'] },
-    { id: 'accounts' as SettingsSubTab, title: 'Social Media Accounts', category: 'Destinations', description: 'Configure handles and pages for Facebook, Instagram, TikTok, YouTube, X, WhatsApp', keywords: ['accounts', 'facebook', 'instagram', 'tiktok', 'youtube', 'twitter', 'whatsapp', 'pages', 'profiles'] },
-    { id: 'groups' as SettingsSubTab, title: 'Posting Groups', category: 'Destinations', description: 'Bundle social destinations into one-tap posting groups', keywords: ['groups', 'destinations', 'posting groups', 'bundle', 'manage groups'] },
-    { id: 'health' as SettingsSubTab, title: 'App Health Check', category: 'Diagnostics', description: 'Audit local data, account bindings, and missing destinations', keywords: ['health', 'system health', 'check', 'diagnostics', 'local data', 'repair'] },
-    { id: 'rss_sources' as SettingsSubTab, title: 'RSS Feeds & Auto Hunt', category: 'News Engine', description: 'Curated RSS source list, feed connectivity tester, and schedule intervals', keywords: ['rss', 'sources', 'feeds', 'auto hunt', 'interval', 'scrape'] }
+    { id: 'accounts' as SettingsSubTab, title: 'Social Accounts', category: 'Social Accounts', description: 'Configure Facebook Page, Facebook Profile, Instagram, TikTok, YouTube, X, and Threads', keywords: ['accounts', 'social accounts', 'facebook', 'instagram', 'tiktok', 'youtube', 'twitter', 'x', 'threads', 'pages', 'profiles', 'url'] },
+    { id: 'groups' as SettingsSubTab, title: 'Posting Groups', category: 'Posting Groups', description: 'Select existing group, Create Custom Group (+), Edit, Delete, Duplicate, and select social accounts', keywords: ['groups', 'destinations', 'posting groups', 'bundle', 'manage groups', 'custom group'] },
+    { id: 'theme' as SettingsSubTab, title: 'Theme', category: 'Theme', description: 'Appearance color scheme: Dark, Light, Lollipop, or System', keywords: ['theme', 'dark', 'light', 'lollipop', 'system', 'appearance', 'color'] },
+    { id: 'language_region' as SettingsSubTab, title: 'Language & Region', category: 'Language & Region', description: 'Display language and regional localization preferences', keywords: ['language', 'region', 'locale', 'indonesian', 'english', 'country'] },
+    { id: 'timezone' as SettingsSubTab, title: 'Timezone', category: 'Timezone', description: 'Primary timezone for scheduled queue and timeline calculation (Asia/Jakarta, WITA, WIT, UTC)', keywords: ['timezone', 'asia/jakarta', 'wib', 'wita', 'wit', 'utc', 'clock', 'time'] },
+    { id: 'backup' as SettingsSubTab, title: 'Backup & Restore', category: 'Backup & Restore', description: 'Export JSON project, restore with merge conflict check, and Google Drive', keywords: ['backup', 'restore', 'data', 'export', 'import', 'recovery copy', 'integrity check', 'repair', 'google drive'] },
+    { id: 'app_settings' as SettingsSubTab, title: 'App Settings', category: 'App Settings', description: 'General app name, landing page, AI, News Hunter, content limits, notifications, and system health', keywords: ['app settings', 'general', 'app name', 'landing', 'home', 'news', 'create'] },
+    { id: 'subscription' as SettingsSubTab, title: 'Account & Subscription / Plans & Upgrade', category: 'App Settings', description: 'Guest / Local Mode account status, FREE and PRO plans, billing status, and ADMIN TEST controls', keywords: ['account', 'account & subscription', 'guest', 'local mode', 'signed in', 'cloud sync', 'plan', 'subscription', 'pro', 'free', 'upgrade', 'usage', 'limits', 'admin test', 'quota', 'pricing', 'billing'] },
+    { id: 'content' as SettingsSubTab, title: 'Content & Hashtag Limits', category: 'App Settings', description: 'Default content formats, per-network hashtag caps, global default hashtags', keywords: ['content', 'hashtag', 'hashtags', 'limits', 'post', 'reel', 'video', 'shorts', 'facebook', 'instagram', 'tiktok', 'youtube', 'x', 'twitter', 'threads'] },
+    { id: 'news_hunter' as SettingsSubTab, title: 'News Hunter Defaults', category: 'App Settings', description: 'Default category topics, viral hype score filters, media preferences, feed sorting', keywords: ['news', 'news hunter', 'hype', 'viral', 'categories', 'media filter', 'sorting', 'newest', 'sources', 'persib', 'auto hunt'] },
+    { id: 'ai' as SettingsSubTab, title: 'AI Assistant & Tone Settings', category: 'App Settings', description: 'Master AI assistant toggle, tone rewrites, writing style, zero client key exposure', keywords: ['ai', 'gemini', 'assistant', 'rewrite', 'news rewrite', 'writing language', 'writing style', 'tone', 'api keys', 'security'] },
+    { id: 'scheduling' as SettingsSubTab, title: 'Scheduling & In-App Reminders', category: 'App Settings', description: 'Default queue priority, clock synchronization, advance notification lead times', keywords: ['scheduling', 'schedule', 'priority', 'reminder', 'lead time', 'minutes', 'timezone', 'in-app', 'due now'] },
+    { id: 'sharing' as SettingsSubTab, title: 'Sharing Workflow & Order', category: 'App Settings', description: 'Pre-launch confirmations, manual completion verification, destination sequence', keywords: ['sharing', 'share', 'order', 'sequence', 'confirm', 'completion', 'published', 'open platform', 'sheet'] },
+    { id: 'media' as SettingsSubTab, title: 'Media Handling & Cache Controls', category: 'App Settings', description: 'Preview dimensions, storage constraints, and temporary cache purge', keywords: ['media', 'preview', 'downloadable', 'size', 'cache', 'clear media cache', 'video', 'image', 'blobs'] },
+    { id: 'notifications' as SettingsSubTab, title: 'Notification & Alert Center', category: 'App Settings', description: 'In-app toasts, queue alarms, and native build status info', keywords: ['notification', 'notifications', 'queue reminders', 'alerts', 'share session', 'native', 'android', 'web preview'] },
+    { id: 'storage' as SettingsSubTab, title: 'Storage & Cache', category: 'App Settings', description: 'Media cache retention, history retention, daily UTC cleanup schedule, and Clean Now', keywords: ['storage', 'cache', 'media cache', 'history retention', 'clean now', 'clear media cache', 'cleanup time', 'utc', '00:00 utc', 'keep 7 days', 'automatic cleanup'] },
+    { id: 'about' as SettingsSubTab, title: 'About & Subsystems Status', category: 'App Settings', description: 'Version number, schema v3, APK readiness, and feature checklist', keywords: ['about', 'version', 'data schema', 'build', 'features', 'cross-posting', 'news hunter', 'apk'] },
+    { id: 'health' as SettingsSubTab, title: 'App Health Check', category: 'App Settings', description: 'Audit local data, account bindings, and missing destinations', keywords: ['health', 'system health', 'check', 'diagnostics', 'local data', 'repair'] },
+    { id: 'rss_sources' as SettingsSubTab, title: 'RSS Feeds & Auto Hunt', category: 'App Settings', description: 'Curated RSS source list, feed connectivity tester, and schedule intervals', keywords: ['rss', 'sources', 'feeds', 'auto hunt', 'interval', 'scrape'] }
   ], []);
 
   const searchResults = useMemo(() => {
@@ -305,12 +322,344 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     'tiktok',
     'youtube',
     'twitter',
-    'whatsapp'
+    'threads'
   ];
 
-  const handleOpenEdit = (platformId?: PlatformId) => {
+  const [focusEditAccountId, setFocusEditAccountId] = useState<string | null>(null);
+  const [inlineEditingId, setInlineEditingId] = useState<string | null>(null);
+  const [inlineName, setInlineName] = useState('');
+  const [inlineUrl, setInlineUrl] = useState('');
+  const [inlineIdentifier, setInlineIdentifier] = useState('');
+  const [inlineNotes, setInlineNotes] = useState('');
+  const [inlineError, setInlineError] = useState<string | null>(null);
+  const [cardUrlDrafts, setCardUrlDrafts] = useState<Record<string, string>>({});
+
+  const handleDirectUrlChange = (platformId: PlatformId, accountId: string, newUrlVal: string) => {
+    setCardUrlDrafts(prev => ({ ...prev, [accountId]: newUrlVal }));
+  };
+
+  const handleDirectUrlCommit = (platformId: PlatformId, accountId: string, rawVal?: string) => {
+    const val = (rawVal !== undefined ? rawVal : (cardUrlDrafts[accountId] ?? '')).trim();
+    const check = val ? validatePlatformUrl(platformId, val) : { valid: true, sanitizedUrl: '' };
+    const finalUrl = check.valid ? check.sanitizedUrl : sanitizeUrl(val);
+    const extractedHandle = extractHandleFromUrl(finalUrl);
+
+    const updated: UserSocialAccounts = {
+      ...userAccounts,
+      facebook_page: [...userAccounts.facebook_page],
+      facebook_profile: [...(userAccounts.facebook_profile || [])],
+      instagram: [...userAccounts.instagram],
+      tiktok: [...userAccounts.tiktok],
+      youtube: [...userAccounts.youtube],
+      twitter: [...userAccounts.twitter],
+      threads: [...(userAccounts.threads || [])]
+    };
+
+    if (platformId === 'facebook_page') {
+      updated.facebook_page = updated.facebook_page.map(i =>
+        i.id === accountId
+          ? {
+              ...i,
+              pageUrl: finalUrl,
+              connectionStatus: 'Ready for Manual Share',
+              isExamplePlaceholder: !finalUrl
+            }
+          : i
+      );
+    } else if (platformId === 'facebook_profile') {
+      updated.facebook_profile = updated.facebook_profile.map(i =>
+        i.id === accountId
+          ? {
+              ...i,
+              profileUrl: finalUrl,
+              connectionStatus: 'Ready for Manual Share',
+              isExamplePlaceholder: !finalUrl
+            }
+          : i
+      );
+    } else if (platformId === 'instagram') {
+      updated.instagram = updated.instagram.map(i =>
+        i.id === accountId
+          ? {
+              ...i,
+              username: extractedHandle || i.username,
+              profileUrl: finalUrl,
+              connectionStatus: 'Ready for Manual Share',
+              isExamplePlaceholder: !finalUrl
+            }
+          : i
+      );
+    } else if (platformId === 'tiktok') {
+      updated.tiktok = updated.tiktok.map(i =>
+        i.id === accountId
+          ? {
+              ...i,
+              username: extractedHandle || i.username,
+              profileUrl: finalUrl,
+              connectionStatus: 'Ready for Manual Share',
+              isExamplePlaceholder: !finalUrl
+            }
+          : i
+      );
+    } else if (platformId === 'youtube') {
+      updated.youtube = updated.youtube.map(i =>
+        i.id === accountId
+          ? {
+              ...i,
+              channelUrl: finalUrl,
+              connectionStatus: 'Ready for Manual Share',
+              isExamplePlaceholder: !finalUrl
+            }
+          : i
+      );
+    } else if (platformId === 'twitter') {
+      updated.twitter = updated.twitter.map(i =>
+        i.id === accountId
+          ? {
+              ...i,
+              username: extractedHandle || i.username,
+              profileUrl: finalUrl,
+              connectionStatus: 'Ready for Manual Share',
+              isExamplePlaceholder: !finalUrl
+            }
+          : i
+      );
+    } else if (platformId === 'threads') {
+      updated.threads = (updated.threads || []).map(i =>
+        i.id === accountId
+          ? {
+              ...i,
+              username: extractedHandle || i.username,
+              profileUrl: finalUrl,
+              connectionStatus: 'Ready for Manual Share',
+              isExamplePlaceholder: !finalUrl
+            }
+          : i
+      );
+    }
+
+    onUpdateUserAccounts(updated);
+  };
+
+  const handleOpenEdit = (platformId?: PlatformId, editAccountId?: string) => {
     setFocusPlatform(platformId || null);
+    setFocusEditAccountId(editAccountId || null);
     setIsEditModalOpen(true);
+  };
+
+  const startInlineEditAccount = (platformId: PlatformId, accountId: string) => {
+    setInlineError(null);
+    setInlineEditingId(accountId);
+    if (platformId === 'facebook_page') {
+      const item = userAccounts.facebook_page.find(i => i.id === accountId);
+      setInlineName(item?.pageName || '');
+      setInlineUrl(item?.isExamplePlaceholder ? '' : (item?.pageUrl || ''));
+      setInlineIdentifier(item?.pageId || '');
+      setInlineNotes(item?.notes || '');
+    } else if (platformId === 'facebook_profile') {
+      const item = (userAccounts.facebook_profile || []).find(i => i.id === accountId);
+      setInlineName(item?.profileName || '');
+      setInlineUrl(item?.isExamplePlaceholder ? '' : (item?.profileUrl || ''));
+      setInlineIdentifier(item?.profileId || '');
+      setInlineNotes(item?.notes || '');
+    } else if (platformId === 'instagram') {
+      const item = userAccounts.instagram.find(i => i.id === accountId);
+      setInlineName(item?.displayName || '');
+      setInlineUrl(item?.isExamplePlaceholder ? '' : (item?.profileUrl || ''));
+      setInlineIdentifier(item?.username || '');
+      setInlineNotes(item?.notes || '');
+    } else if (platformId === 'tiktok') {
+      const item = userAccounts.tiktok.find(i => i.id === accountId);
+      setInlineName(item?.displayName || '');
+      setInlineUrl(item?.isExamplePlaceholder ? '' : (item?.profileUrl || ''));
+      setInlineIdentifier(item?.username || '');
+      setInlineNotes(item?.notes || '');
+    } else if (platformId === 'youtube') {
+      const item = userAccounts.youtube.find(i => i.id === accountId);
+      setInlineName(item?.channelName || '');
+      setInlineUrl(item?.isExamplePlaceholder ? '' : (item?.channelUrl || ''));
+      setInlineIdentifier(item?.channelId || '');
+      setInlineNotes(item?.notes || '');
+    } else if (platformId === 'twitter') {
+      const item = userAccounts.twitter.find(i => i.id === accountId);
+      setInlineName(item?.displayName || '');
+      setInlineUrl(item?.isExamplePlaceholder ? '' : (item?.profileUrl || ''));
+      setInlineIdentifier(item?.username || '');
+      setInlineNotes(item?.notes || '');
+    } else if (platformId === 'threads') {
+      const item = (userAccounts.threads || []).find(i => i.id === accountId);
+      setInlineName(item?.displayName || '');
+      setInlineUrl(item?.isExamplePlaceholder ? '' : (item?.profileUrl || ''));
+      setInlineIdentifier(item?.username || '');
+      setInlineNotes(item?.notes || '');
+    }
+  };
+
+  const cancelInlineEditAccount = () => {
+    setInlineEditingId(null);
+    setInlineError(null);
+  };
+
+  const saveInlineEditAccount = (platformId: PlatformId, accountId: string) => {
+    setInlineError(null);
+    const trimmedUrl = inlineUrl.trim();
+    const trimmedName = inlineName.trim();
+    const trimmedId = inlineIdentifier.trim().replace(/^@/, '');
+
+    if (!trimmedUrl && !trimmedId && !trimmedName) {
+      setInlineError('Please enter your Account / Profile / Page URL.');
+      return;
+    }
+
+    let finalUrl = trimmedUrl;
+    if (trimmedUrl) {
+      const check = validatePlatformUrl(platformId, trimmedUrl);
+      if (!check.valid) {
+        setInlineError(check.error || 'Please enter a valid URL for this platform.');
+        return;
+      }
+      finalUrl = check.sanitizedUrl;
+    }
+
+    const extractedHandle = extractHandleFromUrl(finalUrl);
+    const updated: UserSocialAccounts = {
+      ...userAccounts,
+      facebook_page: [...userAccounts.facebook_page],
+      facebook_profile: [...(userAccounts.facebook_profile || [])],
+      instagram: [...userAccounts.instagram],
+      tiktok: [...userAccounts.tiktok],
+      youtube: [...userAccounts.youtube],
+      twitter: [...userAccounts.twitter],
+      threads: [...(userAccounts.threads || [])]
+    };
+
+    if (platformId === 'facebook_page') {
+      updated.facebook_page = updated.facebook_page.map(i =>
+        i.id === accountId
+          ? {
+              ...i,
+              pageName: trimmedName || extractedHandle || i.pageName || 'Facebook Page',
+              pageId: trimmedId || i.pageId,
+              pageUrl: finalUrl,
+              notes: inlineNotes.trim() || undefined,
+              connectionStatus: 'Ready for Manual Share',
+              isExamplePlaceholder: false
+            }
+          : i
+      );
+    } else if (platformId === 'facebook_profile') {
+      updated.facebook_profile = updated.facebook_profile.map(i =>
+        i.id === accountId
+          ? {
+              ...i,
+              profileName: trimmedName || extractedHandle || i.profileName || 'Facebook Profile',
+              profileId: trimmedId || i.profileId,
+              profileUrl: finalUrl,
+              notes: inlineNotes.trim() || undefined,
+              connectionStatus: 'Ready for Manual Share',
+              isExamplePlaceholder: false
+            }
+          : i
+      );
+    } else if (platformId === 'instagram') {
+      const cleanUser = trimmedId || extractedHandle || 'account';
+      updated.instagram = updated.instagram.map(i =>
+        i.id === accountId
+          ? {
+              ...i,
+              displayName: trimmedName || undefined,
+              username: cleanUser,
+              profileUrl: finalUrl || `https://instagram.com/${cleanUser}`,
+              notes: inlineNotes.trim() || undefined,
+              connectionStatus: 'Ready for Manual Share',
+              isExamplePlaceholder: false
+            }
+          : i
+      );
+    } else if (platformId === 'tiktok') {
+      const cleanUser = trimmedId || extractedHandle || 'account';
+      updated.tiktok = updated.tiktok.map(i =>
+        i.id === accountId
+          ? {
+              ...i,
+              displayName: trimmedName || undefined,
+              username: cleanUser,
+              profileUrl: finalUrl || `https://tiktok.com/@${cleanUser}`,
+              notes: inlineNotes.trim() || undefined,
+              connectionStatus: 'Ready for Manual Share',
+              isExamplePlaceholder: false
+            }
+          : i
+      );
+    } else if (platformId === 'youtube') {
+      updated.youtube = updated.youtube.map(i =>
+        i.id === accountId
+          ? {
+              ...i,
+              channelName: trimmedName || extractedHandle || i.channelName || 'YouTube Channel',
+              channelId: trimmedId || i.channelId,
+              channelUrl: finalUrl,
+              notes: inlineNotes.trim() || undefined,
+              connectionStatus: 'Ready for Manual Share',
+              isExamplePlaceholder: false
+            }
+          : i
+      );
+    } else if (platformId === 'twitter') {
+      const cleanUser = trimmedId || extractedHandle || 'account';
+      updated.twitter = updated.twitter.map(i =>
+        i.id === accountId
+          ? {
+              ...i,
+              displayName: trimmedName || undefined,
+              username: cleanUser,
+              profileUrl: finalUrl || `https://x.com/${cleanUser}`,
+              notes: inlineNotes.trim() || undefined,
+              connectionStatus: 'Ready for Manual Share',
+              isExamplePlaceholder: false
+            }
+          : i
+      );
+    } else if (platformId === 'threads') {
+      const cleanUser = trimmedId || extractedHandle || 'account';
+      updated.threads = (updated.threads || []).map(i =>
+        i.id === accountId
+          ? {
+              ...i,
+              displayName: trimmedName || undefined,
+              username: cleanUser,
+              profileUrl: finalUrl || `https://threads.com/@${cleanUser}`,
+              notes: inlineNotes.trim() || undefined,
+              connectionStatus: 'Ready for Manual Share',
+              isExamplePlaceholder: false
+            }
+          : i
+      );
+    }
+
+    onUpdateUserAccounts(updated);
+    setInlineEditingId(null);
+  };
+
+  const getUrlPlaceholderForPlatform = (platformId: PlatformId) => {
+    switch (platformId) {
+      case 'facebook_page':
+        return 'https://facebook.com/jhon.doe';
+      case 'facebook_profile':
+        return 'https://facebook.com/jhon.doe';
+      case 'instagram':
+        return 'https://instagram.com/jhon.doe';
+      case 'tiktok':
+        return 'https://tiktok.com/@jhon.doe';
+      case 'youtube':
+        return 'https://youtube.com/@jhon.doe';
+      case 'twitter':
+        return 'https://x.com/jhon.doe';
+      case 'threads':
+        return 'https://threads.com/@jhon.doe';
+      default:
+        return 'https://facebook.com/jhon.doe';
+    }
   };
 
   const handleTestLink = (url?: string) => {
@@ -328,7 +677,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
       tiktok: [...userAccounts.tiktok],
       youtube: [...userAccounts.youtube],
       twitter: [...userAccounts.twitter],
-      whatsapp: [...userAccounts.whatsapp]
+      threads: [...(userAccounts.threads || [])]
     };
 
     if (platformId === 'facebook_page') {
@@ -343,8 +692,8 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
       updated.youtube = updated.youtube.filter(i => i.id !== accountId);
     } else if (platformId === 'twitter') {
       updated.twitter = updated.twitter.filter(i => i.id !== accountId);
-    } else if (platformId === 'whatsapp') {
-      updated.whatsapp = updated.whatsapp.filter(i => i.id !== accountId);
+    } else if (platformId === 'threads') {
+      updated.threads = (updated.threads || []).filter(i => i.id !== accountId);
     }
     onUpdateUserAccounts(updated);
   };
@@ -363,8 +712,8 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         return '+ Add YouTube Channel';
       case 'twitter':
         return '+ Add X Account';
-      case 'whatsapp':
-        return '+ Add WhatsApp Account';
+      case 'threads':
+        return '+ Add Threads Account';
       default:
         return '+ Add Destination';
     }
@@ -453,38 +802,51 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         onOpenSubscription={() => setActiveSubTab('subscription')}
       />
 
-      {/* Settings Navigation Tabs Bar */}
-      <div className="space-y-1.5">
+      {/* Settings Structure Navigation (7 Primary Sections) */}
+      <div className="space-y-2">
         <div className="flex items-center justify-between text-[11px] font-semibold text-slate-400 uppercase tracking-wider px-1">
-          <span>Settings Sections</span>
-          <span>11 Modules</span>
+          <span>Settings Structure</span>
+          <span>7 Sections</span>
         </div>
 
-        {/* Primary Settings Sections (A through J + Subscription) */}
-        <div className="flex gap-1.5 p-1 bg-slate-100 dark:bg-slate-800/80 rounded-2xl overflow-x-auto scrollbar-none">
+        {/* Primary 7 Settings Sections: Social Accounts, Posting Groups, Theme, Language & Region, Timezone, Backup & Restore, App Settings */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 p-1.5 bg-slate-100 dark:bg-slate-800/80 rounded-2xl border border-slate-200/70 dark:border-slate-800">
           {[
-            { id: 'general', label: 'A. General' },
-            { id: 'subscription', label: '★ Plan & Usage' },
-            { id: 'content', label: 'B. Content' },
-            { id: 'news_hunter', label: 'C. News Hunter' },
-            { id: 'ai', label: 'D. AI' },
-            { id: 'scheduling', label: 'E. Scheduling' },
-            { id: 'sharing', label: 'F. Sharing' },
-            { id: 'media', label: 'G. Media' },
-            { id: 'notifications', label: 'H. Alerts' },
-            { id: 'backup', label: 'I. Data & Backup' },
-            { id: 'about', label: 'J. About' }
+            { id: 'accounts', label: 'Social Accounts' },
+            { id: 'groups', label: `Posting Groups (${socialGroups.length})` },
+            { id: 'theme', label: 'Theme' },
+            { id: 'language_region', label: 'Language & Region' },
+            { id: 'timezone', label: 'Timezone' },
+            { id: 'backup', label: 'Backup & Restore' },
+            { id: 'app_settings', label: 'App Settings' }
           ].map((tab) => {
-            const isActive = activeSubTab === tab.id;
+            const isAppSettingsChild = [
+              'app_settings',
+              'general',
+              'subscription',
+              'content',
+              'news_hunter',
+              'ai',
+              'scheduling',
+              'sharing',
+              'media',
+              'notifications',
+              'storage',
+              'health',
+              'rss_sources',
+              'about'
+            ].includes(activeSubTab);
+            const isActive = tab.id === 'app_settings' ? isAppSettingsChild : activeSubTab === tab.id;
             return (
               <button
                 key={tab.id}
+                id={`settings-tab-${tab.id}`}
                 type="button"
                 onClick={() => setActiveSubTab(tab.id as SettingsSubTab)}
-                className={`py-1.5 px-3 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
+                className={`py-2 px-3 rounded-xl text-xs font-bold whitespace-nowrap transition-all text-center ${
                   isActive
-                    ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                    ? 'bg-indigo-600 text-white shadow-xs'
+                    : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:border-indigo-500/40 border border-slate-200/60 dark:border-slate-800'
                 }`}
               >
                 {tab.label}
@@ -493,32 +855,57 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           })}
         </div>
 
-        {/* Auxiliary Destination & Management Tabs */}
-        <div className="flex gap-1.5 p-1 bg-slate-100/70 dark:bg-slate-800/50 rounded-2xl overflow-x-auto scrollbar-none">
-          {[
-            { id: 'accounts', label: 'Accounts' },
-            { id: 'groups', label: `Groups (${socialGroups.length})` },
-            { id: 'storage', label: 'Storage & Cache' },
-            { id: 'health', label: 'System Health' },
-            { id: 'rss_sources', label: `RSS Feeds (${rssSources.length})` }
-          ].map((tab) => {
-            const isActive = activeSubTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => setActiveSubTab(tab.id as SettingsSubTab)}
-                className={`py-1.5 px-3 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
-                  isActive
-                    ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs'
-                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                }`}
-              >
-                {tab.label}
-              </button>
-            );
-          })}
-        </div>
+        {/* Sub-module selector when inside App Settings */}
+        {[
+          'app_settings',
+          'general',
+          'subscription',
+          'content',
+          'news_hunter',
+          'ai',
+          'scheduling',
+          'sharing',
+          'media',
+          'notifications',
+          'storage',
+          'health',
+          'rss_sources',
+          'about'
+        ].includes(activeSubTab) && (
+          <div className="flex gap-1.5 p-1 bg-slate-100/70 dark:bg-slate-800/50 rounded-2xl overflow-x-auto scrollbar-none">
+            {[
+              { id: 'general', label: 'General' },
+              { id: 'subscription', label: '★ Plan & Usage' },
+              { id: 'content', label: 'Content & Hashtags' },
+              { id: 'news_hunter', label: 'News Hunter' },
+              { id: 'rss_sources', label: `RSS & Auto Hunt (${rssSources.length})` },
+              { id: 'ai', label: 'AI Assistant' },
+              { id: 'scheduling', label: 'Scheduling' },
+              { id: 'sharing', label: 'Sharing' },
+              { id: 'media', label: 'Media' },
+              { id: 'notifications', label: 'Alerts' },
+              { id: 'storage', label: 'Storage & Cache' },
+              { id: 'health', label: 'System Health' },
+              { id: 'about', label: 'About' }
+            ].map((tab) => {
+              const isActive = (activeSubTab === 'app_settings' && tab.id === 'general') || activeSubTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setActiveSubTab(tab.id as SettingsSubTab)}
+                  className={`py-1.5 px-3 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
+                    isActive
+                      ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs'
+                      : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* SUB-TAB 1: SOCIAL ACCOUNTS */}
@@ -615,49 +1002,134 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                           {fbPages.map((page) => (
                             <div
                               key={page.id}
-                              className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/60 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 shadow-xs"
+                              className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/60 space-y-2.5 shadow-xs"
                             >
-                              <div className="min-w-0 flex-1">
-                                <div className="font-semibold text-xs text-slate-900 dark:text-white truncate flex items-center gap-1.5">
-                                  <span>{page.pageName || 'Unnamed Page'}</span>
-                                  <span className="text-[10px] px-1 py-0.2 rounded bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 font-medium">
-                                    Page
-                                  </span>
+                              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                                <div className="min-w-0 flex-1">
+                                  <div className="font-semibold text-xs text-slate-900 dark:text-white truncate flex items-center gap-1.5 flex-wrap">
+                                    <span>{page.pageName || 'Unnamed Page'}</span>
+                                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 font-medium">
+                                      Page
+                                    </span>
+                                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+                                      READY FOR MANUAL SHARE
+                                    </span>
+                                    {page.isExamplePlaceholder && (
+                                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30">
+                                        Sample
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="mt-1.5 flex items-center gap-1.5">
+                                    <input
+                                      type="text"
+                                      value={cardUrlDrafts[page.id] !== undefined ? cardUrlDrafts[page.id] : (page.isExamplePlaceholder ? '' : (page.pageUrl || ''))}
+                                      onChange={(e) => handleDirectUrlChange('facebook_page', page.id, e.target.value)}
+                                      onBlur={(e) => handleDirectUrlCommit('facebook_page', page.id, e.target.value)}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                          e.currentTarget.blur();
+                                        }
+                                      }}
+                                      placeholder={getUrlPlaceholderForPlatform('facebook_page')}
+                                      className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder:text-slate-400 focus:placeholder-transparent focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+                                    />
+                                    {cardUrlDrafts[page.id] !== undefined && cardUrlDrafts[page.id] !== (page.isExamplePlaceholder ? '' : (page.pageUrl || '')) && (
+                                      <button
+                                        type="button"
+                                        onClick={() => handleDirectUrlCommit('facebook_page', page.id)}
+                                        className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold bg-blue-600 hover:bg-blue-500 text-white shrink-0"
+                                      >
+                                        Save
+                                      </button>
+                                    )}
+                                  </div>
                                 </div>
-                                <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5 font-mono">
-                                  {page.pageUrl || 'No page URL set'}
+
+                                <div className="flex items-center gap-1.5 self-end sm:self-center shrink-0">
+                                  {page.pageUrl && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleTestLink(page.pageUrl)}
+                                      className="px-2.5 py-1 rounded-lg text-[11px] font-medium border border-blue-200 dark:border-blue-900 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40 transition-colors flex items-center gap-1"
+                                      title="Test Facebook Page link"
+                                    >
+                                      <span>Test Link</span>
+                                      <ExternalLink className="w-3 h-3" />
+                                    </button>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => startInlineEditAccount('facebook_page', page.id)}
+                                    className="px-2 py-1 rounded-lg text-[11px] font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900/60 transition-colors flex items-center gap-1"
+                                    title="Edit Page URL"
+                                  >
+                                    <Edit2 className="w-3 h-3" />
+                                    <span>Edit</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteAccount('facebook_page', page.id)}
+                                    className="p-1.5 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors"
+                                    title="Delete page"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
                                 </div>
                               </div>
 
-                              <div className="flex items-center gap-1.5 self-end sm:self-center shrink-0">
-                                {page.pageUrl && (
-                                  <button
-                                    type="button"
-                                    onClick={() => handleTestLink(page.pageUrl)}
-                                    className="px-2.5 py-1 rounded-lg text-[11px] font-medium border border-blue-200 dark:border-blue-900 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40 transition-colors flex items-center gap-1"
-                                    title="Test Facebook Page link"
-                                  >
-                                    <span>Test Link</span>
-                                    <ExternalLink className="w-3 h-3" />
-                                  </button>
-                                )}
-                                <button
-                                  type="button"
-                                  onClick={() => handleOpenEdit('facebook_page')}
-                                  className="p-1.5 rounded-lg text-slate-500 hover:text-blue-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                                  title="Edit page"
-                                >
-                                  <Edit2 className="w-3.5 h-3.5" />
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleDeleteAccount('facebook_page', page.id)}
-                                  className="p-1.5 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors"
-                                  title="Delete page"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
-                              </div>
+                              {inlineEditingId === page.id && (
+                                <div className="pt-2.5 border-t border-slate-200 dark:border-slate-700 space-y-2.5 animate-fadeIn">
+                                  {inlineError && (
+                                    <div className="text-[11px] text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/30 px-2.5 py-1.5 rounded-lg border border-rose-200 dark:border-rose-800/50">
+                                      {inlineError}
+                                    </div>
+                                  )}
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                    <div>
+                                      <label className="block text-[10px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
+                                        Account / Page Name
+                                      </label>
+                                      <input
+                                        type="text"
+                                        value={inlineName}
+                                        onChange={(e) => setInlineName(e.target.value)}
+                                        placeholder="Account or Page Name"
+                                        className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="block text-[10px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
+                                        Account / Profile / Page URL *
+                                      </label>
+                                      <input
+                                        type="text"
+                                        value={inlineUrl}
+                                        onChange={(e) => setInlineUrl(e.target.value)}
+                                        placeholder={getUrlPlaceholderForPlatform('facebook_page')}
+                                        className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+                                      />
+                                    </div>
+                                  </div>
+                                  <div className="flex justify-end gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={cancelInlineEditAccount}
+                                      className="px-2.5 py-1 rounded-lg text-[11px] font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-700"
+                                    >
+                                      Cancel
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => saveInlineEditAccount('facebook_page', page.id)}
+                                      className="px-3 py-1 rounded-lg text-[11px] font-semibold bg-blue-600 hover:bg-blue-500 text-white flex items-center gap-1 shadow-xs"
+                                    >
+                                      <Check className="w-3 h-3" />
+                                      <span>Save URL</span>
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           ))}
                         </div>
@@ -709,49 +1181,134 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                           {fbProfiles.map((prof) => (
                             <div
                               key={prof.id}
-                              className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/60 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 shadow-xs"
+                              className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/60 space-y-2.5 shadow-xs"
                             >
-                              <div className="min-w-0 flex-1">
-                                <div className="font-semibold text-xs text-slate-900 dark:text-white truncate flex items-center gap-1.5">
-                                  <span>{prof.profileName || 'Personal Profile'}</span>
-                                  <span className="text-[10px] px-1 py-0.2 rounded bg-sky-100 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 font-medium">
-                                    Personal Profile
-                                  </span>
+                              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                                <div className="min-w-0 flex-1">
+                                  <div className="font-semibold text-xs text-slate-900 dark:text-white truncate flex items-center gap-1.5 flex-wrap">
+                                    <span>{prof.profileName || 'Personal Profile'}</span>
+                                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-sky-100 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 font-medium">
+                                      Personal Profile
+                                    </span>
+                                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+                                      READY FOR MANUAL SHARE
+                                    </span>
+                                    {prof.isExamplePlaceholder && (
+                                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30">
+                                        Sample
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="mt-1.5 flex items-center gap-1.5">
+                                    <input
+                                      type="text"
+                                      value={cardUrlDrafts[prof.id] !== undefined ? cardUrlDrafts[prof.id] : (prof.isExamplePlaceholder ? '' : (prof.profileUrl || ''))}
+                                      onChange={(e) => handleDirectUrlChange('facebook_profile', prof.id, e.target.value)}
+                                      onBlur={(e) => handleDirectUrlCommit('facebook_profile', prof.id, e.target.value)}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                          e.currentTarget.blur();
+                                        }
+                                      }}
+                                      placeholder={getUrlPlaceholderForPlatform('facebook_profile')}
+                                      className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder:text-slate-400 focus:placeholder-transparent focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+                                    />
+                                    {cardUrlDrafts[prof.id] !== undefined && cardUrlDrafts[prof.id] !== (prof.isExamplePlaceholder ? '' : (prof.profileUrl || '')) && (
+                                      <button
+                                        type="button"
+                                        onClick={() => handleDirectUrlCommit('facebook_profile', prof.id)}
+                                        className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold bg-blue-600 hover:bg-blue-500 text-white shrink-0"
+                                      >
+                                        Save
+                                      </button>
+                                    )}
+                                  </div>
                                 </div>
-                                <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5 font-mono">
-                                  {prof.profileUrl || 'No profile URL set'}
+
+                                <div className="flex items-center gap-1.5 self-end sm:self-center shrink-0">
+                                  {prof.profileUrl && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleTestLink(prof.profileUrl)}
+                                      className="px-2.5 py-1 rounded-lg text-[11px] font-medium border border-blue-200 dark:border-blue-900 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40 transition-colors flex items-center gap-1"
+                                      title="Test Facebook Personal Profile link"
+                                    >
+                                      <span>Test Link</span>
+                                      <ExternalLink className="w-3 h-3" />
+                                    </button>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => startInlineEditAccount('facebook_profile', prof.id)}
+                                    className="px-2 py-1 rounded-lg text-[11px] font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900/60 transition-colors flex items-center gap-1"
+                                    title="Edit Profile URL"
+                                  >
+                                    <Edit2 className="w-3 h-3" />
+                                    <span>Edit</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteAccount('facebook_profile', prof.id)}
+                                    className="p-1.5 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors"
+                                    title="Delete profile"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
                                 </div>
                               </div>
 
-                              <div className="flex items-center gap-1.5 self-end sm:self-center shrink-0">
-                                {prof.profileUrl && (
-                                  <button
-                                    type="button"
-                                    onClick={() => handleTestLink(prof.profileUrl)}
-                                    className="px-2.5 py-1 rounded-lg text-[11px] font-medium border border-blue-200 dark:border-blue-900 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40 transition-colors flex items-center gap-1"
-                                    title="Test Facebook Personal Profile link"
-                                  >
-                                    <span>Test Link</span>
-                                    <ExternalLink className="w-3 h-3" />
-                                  </button>
-                                )}
-                                <button
-                                  type="button"
-                                  onClick={() => handleOpenEdit('facebook_profile')}
-                                  className="p-1.5 rounded-lg text-slate-500 hover:text-blue-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                                  title="Edit profile"
-                                >
-                                  <Edit2 className="w-3.5 h-3.5" />
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleDeleteAccount('facebook_profile', prof.id)}
-                                  className="p-1.5 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors"
-                                  title="Delete profile"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
-                              </div>
+                              {inlineEditingId === prof.id && (
+                                <div className="pt-2.5 border-t border-slate-200 dark:border-slate-700 space-y-2.5 animate-fadeIn">
+                                  {inlineError && (
+                                    <div className="text-[11px] text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/30 px-2.5 py-1.5 rounded-lg border border-rose-200 dark:border-rose-800/50">
+                                      {inlineError}
+                                    </div>
+                                  )}
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                    <div>
+                                      <label className="block text-[10px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
+                                        Account / Profile Name
+                                      </label>
+                                      <input
+                                        type="text"
+                                        value={inlineName}
+                                        onChange={(e) => setInlineName(e.target.value)}
+                                        placeholder="Personal Profile Name"
+                                        className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="block text-[10px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
+                                        Account / Profile / Page URL *
+                                      </label>
+                                      <input
+                                        type="text"
+                                        value={inlineUrl}
+                                        onChange={(e) => setInlineUrl(e.target.value)}
+                                        placeholder={getUrlPlaceholderForPlatform('facebook_profile')}
+                                        className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+                                      />
+                                    </div>
+                                  </div>
+                                  <div className="flex justify-end gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={cancelInlineEditAccount}
+                                      className="px-2.5 py-1 rounded-lg text-[11px] font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-700"
+                                    >
+                                      Cancel
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => saveInlineEditAccount('facebook_profile', prof.id)}
+                                      className="px-3 py-1 rounded-lg text-[11px] font-semibold bg-blue-600 hover:bg-blue-500 text-white flex items-center gap-1 shadow-xs"
+                                    >
+                                      <Check className="w-3 h-3" />
+                                      <span>Save URL</span>
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           ))}
                         </div>
@@ -836,46 +1393,137 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                         {destinations.map((dest) => (
                           <div
                             key={dest.id}
-                            className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 shadow-xs"
+                            className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 space-y-2.5 shadow-xs"
                           >
-                            <div className="min-w-0 flex-1">
-                              <div className="font-semibold text-xs text-slate-900 dark:text-white truncate">
-                                {dest.name}
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                              <div className="min-w-0 flex-1">
+                                <div className="font-semibold text-xs text-slate-900 dark:text-white truncate flex items-center gap-1.5 flex-wrap">
+                                  <span>{dest.name}</span>
+                                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+                                    READY FOR MANUAL SHARE
+                                  </span>
+                                  {dest.isExamplePlaceholder && (
+                                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30">
+                                      Sample
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="mt-1.5 flex items-center gap-1.5">
+                                  <input
+                                    type="text"
+                                    value={cardUrlDrafts[dest.id] !== undefined ? cardUrlDrafts[dest.id] : (dest.isExamplePlaceholder ? '' : (dest.url || ''))}
+                                    onChange={(e) => handleDirectUrlChange(pId, dest.id, e.target.value)}
+                                    onBlur={(e) => handleDirectUrlCommit(pId, dest.id, e.target.value)}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter') {
+                                        e.currentTarget.blur();
+                                      }
+                                    }}
+                                    placeholder={getUrlPlaceholderForPlatform(pId)}
+                                    className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-slate-400 focus:placeholder-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono"
+                                  />
+                                  {cardUrlDrafts[dest.id] !== undefined && cardUrlDrafts[dest.id] !== (dest.isExamplePlaceholder ? '' : (dest.url || '')) && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDirectUrlCommit(pId, dest.id)}
+                                      className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold bg-indigo-600 hover:bg-indigo-500 text-white shrink-0"
+                                    >
+                                      Save
+                                    </button>
+                                  )}
+                                </div>
                               </div>
-                              <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
-                                {dest.url || dest.secondaryInfo || 'No destination link'}
+
+                              <div className="flex items-center gap-1.5 self-end sm:self-center shrink-0">
+                                {dest.url && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleTestLink(dest.url)}
+                                    className="px-2.5 py-1 rounded-lg text-[11px] font-medium border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors flex items-center gap-1"
+                                    title="Test destination link"
+                                  >
+                                    <span>Test Link</span>
+                                    <ExternalLink className="w-3 h-3" />
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => startInlineEditAccount(pId, dest.id)}
+                                  className="px-2 py-1 rounded-lg text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/40 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition-colors flex items-center gap-1"
+                                  title="Edit Account URL"
+                                >
+                                  <Edit2 className="w-3 h-3" />
+                                  <span>Edit</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteAccount(pId, dest.id)}
+                                  className="p-1.5 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors"
+                                  title="Delete account"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
                               </div>
                             </div>
 
-                            <div className="flex items-center gap-1.5 self-end sm:self-center shrink-0">
-                              {dest.url && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleTestLink(dest.url)}
-                                  className="px-2.5 py-1 rounded-lg text-[11px] font-medium border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors flex items-center gap-1"
-                                  title="Test destination link"
-                                >
-                                  <span>Test Link</span>
-                                  <ExternalLink className="w-3 h-3" />
-                                </button>
-                              )}
-                              <button
-                                type="button"
-                                onClick={() => handleOpenEdit(pId)}
-                                className="p-1.5 rounded-lg text-slate-500 hover:text-indigo-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                                title="Edit in manager"
-                              >
-                                <Edit2 className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteAccount(pId, dest.id)}
-                                className="p-1.5 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors"
-                                title="Delete account"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
+                            {inlineEditingId === dest.id && (
+                              <div className="pt-2.5 border-t border-slate-200 dark:border-slate-800 space-y-2.5 animate-fadeIn">
+                                {inlineError && (
+                                  <div className="text-[11px] text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/30 px-2.5 py-1.5 rounded-lg border border-rose-200 dark:border-rose-800/50">
+                                    {inlineError}
+                                  </div>
+                                )}
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                  <div>
+                                    <label className="block text-[10px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
+                                      Account Name / Handle
+                                    </label>
+                                    <input
+                                      type="text"
+                                      value={inlineName || inlineIdentifier}
+                                      onChange={(e) => {
+                                        if (pId === 'youtube') {
+                                          setInlineName(e.target.value);
+                                        } else {
+                                          setInlineIdentifier(e.target.value);
+                                        }
+                                      }}
+                                      placeholder="Account Name or Handle"
+                                      className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="block text-[10px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
+                                      Account / Profile / Page URL *
+                                    </label>
+                                    <input
+                                      type="text"
+                                      value={inlineUrl}
+                                      onChange={(e) => setInlineUrl(e.target.value)}
+                                      placeholder={getUrlPlaceholderForPlatform(pId)}
+                                      className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono"
+                                    />
+                                  </div>
+                                </div>
+                                <div className="flex justify-end gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={cancelInlineEditAccount}
+                                    className="px-2.5 py-1 rounded-lg text-[11px] font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-700"
+                                  >
+                                    Cancel
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => saveInlineEditAccount(pId, dest.id)}
+                                    className="px-3 py-1 rounded-lg text-[11px] font-semibold bg-indigo-600 hover:bg-indigo-500 text-white flex items-center gap-1 shadow-xs"
+                                  >
+                                    <Check className="w-3 h-3" />
+                                    <span>Save URL</span>
+                                  </button>
+                                </div>
+                              </div>
+                            )}
                           </div>
                         ))}
                       </div>
@@ -954,6 +1602,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           onUpdateUserAccounts(newAccs);
         }}
         initialFocusPlatform={focusPlatform}
+        initialEditAccountId={focusEditAccountId}
       />
 
       {/* SUB-TAB 2: GROUPS MANAGER */}
@@ -971,8 +1620,126 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         </div>
       )}
 
-      {/* SECTION A: GENERAL SETTINGS */}
-      {activeSubTab === 'general' && (
+      {/* SUB-TAB 3: THEME */}
+      {activeSubTab === 'theme' && (
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-4 sm:p-5 space-y-4 shadow-sm animate-fadeIn">
+          <div>
+            <h2 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+              <Palette className="w-4 h-4 text-indigo-500" />
+              <span>Theme</span>
+            </h2>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+              Select your preferred visual appearance (Dark, Light, Lollipop Red-White, or System)
+            </p>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+            {[
+              { id: 'dark', label: 'Dark', icon: Moon },
+              { id: 'light', label: 'Light', icon: Sun },
+              { id: 'lollipop', label: 'Lollipop', icon: Palette },
+              { id: 'system', label: 'System', icon: Monitor }
+            ].map((themeOpt) => {
+              const Icon = themeOpt.icon;
+              const isActive = (settings.theme || 'dark') === themeOpt.id;
+              const isLollipop = themeOpt.id === 'lollipop';
+              return (
+                <button
+                  key={themeOpt.id}
+                  id={`settings-theme-${themeOpt.id}`}
+                  type="button"
+                  onClick={() => onUpdateSettings({ theme: themeOpt.id as any })}
+                  className={`py-3 px-3 rounded-2xl border text-xs font-bold flex items-center justify-center gap-2 transition-all ${
+                    isActive
+                      ? isLollipop
+                        ? 'border-red-500 bg-red-50 text-red-700 shadow-sm ring-1 ring-red-400/50'
+                        : 'border-indigo-600 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 shadow-sm'
+                      : 'border-slate-200 dark:border-slate-700/60 bg-slate-50 dark:bg-slate-800/60 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                  }`}
+                >
+                  {isLollipop ? (
+                    <span className="w-3.5 h-3.5 rounded-full bg-gradient-to-tr from-[#E53935] via-[#EF4444] to-[#FB7185] border border-white shadow-xs shrink-0" />
+                  ) : (
+                    <Icon className="w-4 h-4" />
+                  )}
+                  <span>{themeOpt.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* SUB-TAB 4: LANGUAGE & REGION */}
+      {activeSubTab === 'language_region' && (
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-4 sm:p-5 space-y-5 shadow-sm animate-fadeIn">
+          <div>
+            <h2 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+              <Globe className="w-4 h-4 text-indigo-500" />
+              <span>Language & Region</span>
+            </h2>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+              Configure application display language and regional news preferences
+            </p>
+          </div>
+
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800">
+            <div>
+              <label className="text-xs font-semibold text-slate-800 dark:text-slate-200 block">
+                Display Language
+              </label>
+              <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                Application UI language & localized labels
+              </span>
+            </div>
+            <DisplayLanguageDropdown
+              settings={settings}
+              onUpdateSettings={onUpdateSettings}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* SUB-TAB 5: TIMEZONE */}
+      {activeSubTab === 'timezone' && (
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-4 sm:p-5 space-y-5 shadow-sm animate-fadeIn">
+          <div>
+            <h2 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+              <Clock className="w-4 h-4 text-indigo-500" />
+              <span>Timezone</span>
+            </h2>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+              Configure the primary timezone used for Scheduled posts and Queue timelines
+            </p>
+          </div>
+
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800">
+            <div className="flex items-center gap-2.5">
+              <Clock className="w-4 h-4 text-indigo-500 shrink-0" />
+              <div>
+                <label className="text-xs font-semibold text-slate-800 dark:text-slate-200 block">
+                  Primary Timezone
+                </label>
+                <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                  Scheduled queue and timeline calculation base
+                </span>
+              </div>
+            </div>
+            <select
+              value={settings.timezone || 'Asia/Jakarta'}
+              onChange={(e) => onUpdateSettings({ timezone: e.target.value })}
+              className="w-full sm:w-64 px-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/50 font-semibold"
+            >
+              <option value="Asia/Jakarta">Asia/Jakarta (WIB, UTC+7)</option>
+              <option value="Asia/Makassar">Asia/Makassar (WITA, UTC+8)</option>
+              <option value="Asia/Jayapura">Asia/Jayapura (WIT, UTC+9)</option>
+              <option value="UTC">UTC (Universal Time)</option>
+            </select>
+          </div>
+        </div>
+      )}
+
+      {/* SECTION A: GENERAL / APP SETTINGS */}
+      {(activeSubTab === 'general' || activeSubTab === 'app_settings') && (
         <GeneralSettingsSection
           settings={settings}
           onUpdateSettings={onUpdateSettings}
@@ -997,7 +1764,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             (userAccounts.tiktok?.length || 0) +
             (userAccounts.youtube?.length || 0) +
             (userAccounts.twitter?.length || 0) +
-            (userAccounts.whatsapp?.length || 0)
+            (userAccounts.threads?.length || 0)
           }
           currentGroupsCount={socialGroups.length}
           currentQueueCount={currentQueueCount}

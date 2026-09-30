@@ -29,7 +29,7 @@ const DESTINATION_PLATFORMS_CONFIG: { id: PlatformId; label: string }[] = [
   { id: 'tiktok', label: 'TikTok' },
   { id: 'youtube', label: 'YouTube' },
   { id: 'twitter', label: 'X' },
-  { id: 'whatsapp', label: 'WhatsApp' }
+  { id: 'threads', label: 'Threads' }
 ];
 
 export const GroupEditModal: React.FC<GroupEditModalProps> = ({
@@ -116,7 +116,7 @@ export const GroupEditModal: React.FC<GroupEditModalProps> = ({
     e.preventDefault();
     const trimmedName = name.trim();
     if (!trimmedName) {
-      setError('Please provide a Group Name (e.g. NGABLOEVENTURE, PERSIB).');
+      setError('Please provide a Group Name (e.g. Main Brand, Business Page, Store Account).');
       return;
     }
 
@@ -187,7 +187,7 @@ export const GroupEditModal: React.FC<GroupEditModalProps> = ({
                   setName(e.target.value);
                   if (error) setError(null);
                 }}
-                placeholder="e.g. NGABLOEVENTURE, PERSIB, Main Brand"
+                placeholder="e.g. Main Brand, Business Page, Personal Accounts, Store Account"
                 className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 transition-all font-medium"
                 autoFocus
               />
@@ -201,7 +201,7 @@ export const GroupEditModal: React.FC<GroupEditModalProps> = ({
                 type="text"
                 value={description}
                 onChange={e => setDescription(e.target.value)}
-                placeholder="e.g. Outdoor adventure & fishing multi-channel network"
+                placeholder="e.g. Official brand channels for cross-platform updates"
                 className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 transition-all"
               />
             </div>
@@ -212,10 +212,10 @@ export const GroupEditModal: React.FC<GroupEditModalProps> = ({
             <div className="flex items-center justify-between flex-wrap gap-2">
               <div>
                 <h3 className="text-xs font-bold uppercase tracking-wider text-slate-900 dark:text-white">
-                  Group Destinations
+                  Select Social Accounts
                 </h3>
                 <p className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 mt-0.5">
-                  {selectedDestinationIds.length} of {totalConfiguredCount} destinations selected
+                  {selectedDestinationIds.length} of {totalConfiguredCount} social accounts selected
                 </p>
               </div>
 
@@ -360,7 +360,7 @@ export const GroupEditModal: React.FC<GroupEditModalProps> = ({
             className="px-5 py-2.5 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white shadow-sm flex items-center gap-1.5 transition-colors active:scale-[0.99]"
           >
             <Check className="w-4 h-4" />
-            <span>{initialGroup ? 'Save Changes' : 'Create Group'}</span>
+            <span>Save</span>
           </button>
         </div>
       </div>

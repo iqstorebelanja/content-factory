@@ -47,7 +47,11 @@ export const errorReporter = {
       errorLogBuffer.pop();
     }
 
-    logger.error(`[${feature}] ${code}: ${safeInternal}`, safeDetails);
+    if (recoverable) {
+      logger.warn(`[${feature}] ${code}: ${safeInternal}`, safeDetails);
+    } else {
+      logger.error(`[${feature}] ${code}: ${safeInternal}`, safeDetails);
+    }
     return errorObj;
   },
 

@@ -16,7 +16,7 @@ export const APP_CONFIG = {
     'tiktok',
     'youtube',
     'twitter',
-    'whatsapp'
+    'threads'
   ] as const,
   // Feature Flags: false by default in Web Preview; can be enabled in Android Native shell
   FEATURE_FLAGS: {

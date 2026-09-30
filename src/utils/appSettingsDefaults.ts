@@ -22,7 +22,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   notificationEnabled: true,
   isExpoGoMode: true,
   hasDevBuild: false,
-  defaultHashtags: ['#Jangari', '#Mancing', '#WisataJawaBarat', '#Fishing', '#NgabloeVenture'],
+  defaultHashtags: ['#SocialMedia', '#ContentCreator', '#DigitalMarketing', '#BrandUpdate', '#Highlights'],
   theme: 'dark',
 
   // A. GENERAL
@@ -37,7 +37,8 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
       instagram: 10,
       tiktok: 5,
       youtube: 5,
-      twitter: 3
+      twitter: 3,
+      threads: 5
     }
   },
 
@@ -76,7 +77,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
       'tiktok',
       'youtube',
       'twitter',
-      'whatsapp'
+      'threads'
     ]
   },
 
@@ -152,7 +153,10 @@ export function ensureAppSettings(savedRaw: any): AppSettings {
     },
     sharingSettings: {
       ...DEFAULT_APP_SETTINGS.sharingSettings!,
-      ...(savedRaw.sharingSettings || {})
+      ...(savedRaw.sharingSettings || {}),
+      defaultPlatformOrder: Array.isArray(savedRaw.sharingSettings?.defaultPlatformOrder)
+        ? savedRaw.sharingSettings.defaultPlatformOrder.map((p: string) => (p === 'whatsapp' ? 'threads' : p))
+        : DEFAULT_APP_SETTINGS.sharingSettings!.defaultPlatformOrder
     },
     mediaSettings: {
       ...DEFAULT_APP_SETTINGS.mediaSettings!,
@@ -189,9 +193,8 @@ export interface AppStorageBreakdown {
  */
 export function calculateStorageBreakdown(): AppStorageBreakdown {
   const BUCKET_DEFINITIONS: { key: string; altKey?: string; name: string; isList?: boolean }[] = [
-    { key: 'sss_user_accounts', name: 'Connected Accounts' },
+    { key: 'sss_user_accounts', name: 'Social Accounts' },
     { key: 'sss_social_groups', name: 'Posting Groups', isList: true },
-    { key: 'sss_drafts', altKey: 'sss_post_drafts', name: 'Drafts', isList: true },
     { key: 'sss_history', altKey: 'sss_post_history', name: 'History Records', isList: true },
     { key: 'sss_content_queue', name: 'Scheduled Queue', isList: true },
     { key: 'sss_saved_news_library', name: 'Saved News Library', isList: true },

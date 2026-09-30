@@ -140,10 +140,11 @@ export const PlatformContentGenerator: React.FC<PlatformContentGeneratorProps> =
           caption: universalCaption || universalTitle || '',
           hashtags: safeUniversalHashtags.slice(0, 3)
         };
-      case 'whatsapp':
+      case 'threads':
         return {
           caption: universalCaption || universalDescription || '',
-          callToAction: 'Kira-kira kapan kita agendakan bareng lagi?'
+          callToAction: 'Bagaimana pendapat kalian? Yuk diskusi di bawah!',
+          hashtags: safeUniversalHashtags.slice(0, 5)
         };
       default:
         return {
@@ -173,7 +174,7 @@ export const PlatformContentGenerator: React.FC<PlatformContentGeneratorProps> =
 
     try {
       const resJson = await apiService.generateAI({
-        topic: topic || universalTitle || universalCaption || 'Trip mancing Waduk Jangari dan wisata seru Jawa Barat',
+        topic: topic || universalTitle || universalCaption || 'Weekly brand and creator highlight update',
         mediaType: media?.type,
         mediaName: media?.name,
         platforms: selectedPlatforms
@@ -417,7 +418,7 @@ export const PlatformContentGenerator: React.FC<PlatformContentGeneratorProps> =
                     const tags = e.target.value.split(/\s+/).filter(t => t.startsWith('#')).slice(0, 5);
                     onChangePlatformOverride(pId, { ...content, hashtags: tags });
                   }}
-                  placeholder="#Jangari #Mancing #WisataJawaBarat"
+                  placeholder="#BrandUpdate #SocialMedia #CreatorTips"
                   className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                 />
               </div>
@@ -455,7 +456,7 @@ export const PlatformContentGenerator: React.FC<PlatformContentGeneratorProps> =
                     const tags = e.target.value.split(/\s+/).filter(t => t.startsWith('#')).slice(0, 5);
                     onChangePlatformOverride(pId, { ...content, hashtags: tags });
                   }}
-                  placeholder="#CeritaHariIni #Jangari #MancingSantai"
+                  placeholder="#DailyUpdate #PersonalStory #Lifestyle"
                   className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                 />
               </div>
@@ -474,7 +475,7 @@ export const PlatformContentGenerator: React.FC<PlatformContentGeneratorProps> =
                   id="ig-opening-input"
                   value={content.opening || ''}
                   onChange={(e) => onChangePlatformOverride(pId, { ...content, opening: e.target.value })}
-                  placeholder="Spot mancing terbaik dengan view juara di Jangari! 🎣✨"
+                  placeholder="Scroll-stopping opening hook for your Instagram post or Reel! ✨"
                   className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                 />
               </div>
@@ -507,7 +508,7 @@ export const PlatformContentGenerator: React.FC<PlatformContentGeneratorProps> =
                     const tags = e.target.value.split(/\s+/).filter(t => t.startsWith('#')).slice(0, 10);
                     onChangePlatformOverride(pId, { ...content, hashtags: tags });
                   }}
-                  placeholder="#Jangari #Mancing #WisataJawaBarat #Fishing #NgabloeVenture #MancingMania #Explore"
+                  placeholder="#BrandUpdate #InstagramReels #ContentCreator #SocialMedia #Trending #Explore"
                   className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                 />
               </div>
@@ -526,7 +527,7 @@ export const PlatformContentGenerator: React.FC<PlatformContentGeneratorProps> =
                   id="tiktok-hook-input"
                   value={content.hook || ''}
                   onChange={(e) => onChangePlatformOverride(pId, { ...content, hook: e.target.value })}
-                  placeholder="Spot mancing rahasia yang jarang orang tahu di Jangari!"
+                  placeholder="3 things you need to know about this update!"
                   className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                 />
               </div>
@@ -559,7 +560,7 @@ export const PlatformContentGenerator: React.FC<PlatformContentGeneratorProps> =
                     const tags = e.target.value.split(/\s+/).filter(t => t.startsWith('#')).slice(0, 5);
                     onChangePlatformOverride(pId, { ...content, hashtags: tags });
                   }}
-                  placeholder="#Jangari #Mancing #TikTokTravel #FYP #Trending"
+                  placeholder="#TikTokTips #Creator #FYP #Trending #Viral"
                   className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                 />
               </div>
@@ -614,7 +615,7 @@ export const PlatformContentGenerator: React.FC<PlatformContentGeneratorProps> =
                     const tagList = e.target.value.split(',').map(t => t.trim().replace(/^#/, '')).filter(Boolean).slice(0, 15);
                     onChangePlatformOverride(pId, { ...content, tags: tagList });
                   }}
-                  placeholder="jangari, mancing jangari, waduk jangari, spot mancing cianjur"
+                  placeholder="creator workflow, social media tips, content strategy, video update"
                   className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                 />
               </div>
@@ -632,7 +633,7 @@ export const PlatformContentGenerator: React.FC<PlatformContentGeneratorProps> =
                     const tags = e.target.value.split(/\s+/).filter(t => t.startsWith('#')).slice(0, 5);
                     onChangePlatformOverride(pId, { ...content, hashtags: tags });
                   }}
-                  placeholder="#Jangari #Mancing #WisataJawaBarat #YouTubeShorts"
+                  placeholder="#CreatorTips #SocialMedia #YouTubeShorts #Highlights"
                   className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                 />
               </div>
@@ -676,41 +677,59 @@ export const PlatformContentGenerator: React.FC<PlatformContentGeneratorProps> =
                     const tags = e.target.value.split(/\s+/).filter(t => t.startsWith('#')).slice(0, 3);
                     onChangePlatformOverride(pId, { ...content, hashtags: tags });
                   }}
-                  placeholder="#Jangari #Mancing #Wisata"
+                  placeholder="#Update #News #Highlights"
                   className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                 />
               </div>
             </>
           )}
 
-          {/* 6. WHATSAPP */}
-          {pId === 'whatsapp' && (
+          {/* 6. THREADS */}
+          {pId === 'threads' && (
             <>
               <div className="space-y-1">
                 <div className="flex items-center justify-between text-[11px] font-semibold text-slate-700 dark:text-slate-300">
-                  <span>WhatsApp Message (Natural & Broadcast-friendly)</span>
-                  <span className="text-[10px] text-slate-400">{(content.caption || '').length} chars</span>
+                  <span>Threads Post (Conversational, under 500 chars)</span>
+                  <span className="text-[10px] text-slate-400">{(content.caption || '').length}/500 chars</span>
                 </div>
                 <textarea
                   rows={4}
-                  id="wa-message-input"
+                  id="threads-post-input"
                   value={content.caption || ''}
                   onChange={(e) => onChangePlatformOverride(pId, { ...content, caption: e.target.value })}
-                  placeholder="Halo teman-teman! Mau berbagi momen seru..."
+                  placeholder="Write an engaging Threads post..."
                   className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-2.5 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                 />
               </div>
 
               <div className="space-y-1">
                 <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300 block">
-                  Optional Closing Call-To-Action
+                  Optional Discussion Prompt / Call-To-Action
                 </label>
                 <input
                   type="text"
-                  id="wa-cta-input"
+                  id="threads-cta-input"
                   value={content.callToAction || ''}
                   onChange={(e) => onChangePlatformOverride(pId, { ...content, callToAction: e.target.value })}
-                  placeholder="e.g. Kira-kira kapan kita agendakan jalan atau mancing bareng lagi?"
+                  placeholder="e.g. What are your thoughts on this? Reply below!"
+                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-[11px] font-semibold text-slate-700 dark:text-slate-300">
+                  <span>Hashtags (up to 5)</span>
+                  <span className="text-[10px] text-slate-400">{safeHashtags.length}/5</span>
+                </div>
+                <input
+                  type="text"
+                  id="threads-hashtags-input"
+                  value={safeHashtags.join(' ')}
+                  onChange={(e) => {
+                    const tags = e.target.value.split(/\s+/).filter(t => t.startsWith('#')).slice(0, 5);
+                    onChangePlatformOverride(pId, { ...content, hashtags: tags });
+                  }}
+                  placeholder="#Threads #Update #Highlights"
                   className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                 />
               </div>
@@ -770,7 +789,7 @@ export const PlatformContentGenerator: React.FC<PlatformContentGeneratorProps> =
         <div className="space-y-1.5">
           <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300 flex items-center justify-between">
             <span>Basic Topic or Description (Input for AI)</span>
-            <span className="text-[10px] text-slate-400 font-normal">Used across Facebook, Instagram, TikTok, YouTube, X, WhatsApp</span>
+            <span className="text-[10px] text-slate-400 font-normal">Used across Facebook, Instagram, TikTok, YouTube, X, Threads</span>
           </label>
           <div className="relative">
             <textarea
@@ -778,7 +797,7 @@ export const PlatformContentGenerator: React.FC<PlatformContentGeneratorProps> =
               id="ai-topic-input"
               value={topic}
               onChange={(e) => onTopicChange(e.target.value)}
-              placeholder="e.g. Trip mancing di Waduk Jangari Jawa Barat bersama teman, spot ikan air tawar mantap dan panorama alam indah..."
+              placeholder="e.g. Product launch announcement, weekly brand update, or behind-the-scenes creator story..."
               className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-3 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 leading-relaxed"
             />
           </div>

@@ -71,7 +71,7 @@ export const PlatformPreview: React.FC<PlatformPreviewProps> = ({
     'tiktok',
     'youtube',
     'twitter',
-    'whatsapp'
+    'threads'
   ];
 
   const accountInfo = getPlatformAccountDisplay(activePlatform, userAccounts);
@@ -198,13 +198,17 @@ export const PlatformPreview: React.FC<PlatformPreviewProps> = ({
           />
         )}
 
-        {activePlatform === 'whatsapp' && (
-          <WhatsAppMockup
+        {activePlatform === 'threads' && (
+          <ThreadsMockup
             title={effectiveTitle}
             caption={effectiveCaption}
             hashtags={effectiveHashtags}
             media={media}
-            contactOrNumber={userAccounts?.whatsapp?.phoneNumber || userAccounts?.whatsapp?.waLink}
+            username={
+              Array.isArray(userAccounts?.threads)
+                ? userAccounts?.threads[0]?.username || userAccounts?.threads[0]?.displayName
+                : (userAccounts?.threads as any)?.username
+            }
           />
         )}
       </div>
@@ -330,7 +334,7 @@ const InstagramMockup: React.FC<{
               {displayUser}
             </div>
             <div className="text-[10px] text-slate-400 mt-0.5">
-              Original Audio • Jangari Spot
+              Original Audio • @{displayUser}
             </div>
           </div>
         </div>
@@ -640,81 +644,74 @@ const XMockup: React.FC<{
   );
 };
 
-/* 6. WHATSAPP MOCKUP */
-const WhatsAppMockup: React.FC<{
+/* 6. THREADS MOCKUP */
+const ThreadsMockup: React.FC<{
   title: string;
   caption: string;
   hashtags: string[];
   media?: MediaItem | null;
-  contactOrNumber?: string;
-}> = ({ title, caption, hashtags, media, contactOrNumber }) => {
+  username?: string;
+}> = ({ title, caption, hashtags, media, username }) => {
+  const displayHandle = username ? username.replace(/^@/, '') : 'jhon.doe';
   return (
-    <div className="border border-emerald-500/30 rounded-2xl bg-[#ECE5DD] dark:bg-[#0b141a] overflow-hidden shadow-sm">
-      {/* WhatsApp Chat Top Bar */}
-      <div className="bg-[#075E54] dark:bg-[#202c33] text-white px-3 py-2.5 flex items-center justify-between">
-        <div className="flex items-center gap-2.5">
-          <ArrowLeft className="w-4 h-4" />
-          <div className="w-8 h-8 rounded-full bg-emerald-700 flex items-center justify-center text-xs font-bold text-white">
-            WA
+    <div className="border border-slate-200 dark:border-slate-800 rounded-2xl bg-white dark:bg-slate-950 p-4 space-y-3 shadow-sm">
+      {/* Top Profile */}
+      <div className="flex items-start justify-between">
+        <div className="flex items-start gap-3">
+          <div className="w-10 h-10 rounded-full bg-neutral-900 dark:bg-white text-white dark:text-neutral-900 flex items-center justify-center font-bold text-sm">
+            @
           </div>
           <div>
-            <div className="text-xs font-bold leading-none">
-              {contactOrNumber || 'My Broadcast & Contacts'}
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs font-bold text-slate-900 dark:text-white">
+                {displayHandle}
+              </span>
+              <span className="text-[10px] px-1.5 py-0.2 rounded bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 font-semibold">
+                threads.com
+              </span>
+              <span className="text-[11px] text-slate-400">• 1m</span>
             </div>
-            <div className="text-[10px] text-emerald-100 dark:text-slate-300 mt-0.5">
-              Online
-            </div>
+            <span className="text-[10px] text-slate-400">
+              {(caption || '').length}/500 chars
+            </span>
           </div>
         </div>
-
-        <div className="flex items-center gap-3 text-white/90">
-          <VideoIcon className="w-4 h-4" />
-          <Phone className="w-4 h-4" />
-          <MoreHorizontal className="w-4 h-4" />
-        </div>
+        <MoreHorizontal className="w-4 h-4 text-slate-400" />
       </div>
 
-      {/* Chat Canvas with Outgoing Bubble */}
-      <div className="p-3.5 space-y-2 min-h-[220px] flex flex-col justify-end">
-        {/* Outgoing WhatsApp Bubble */}
-        <div className="ml-auto max-w-[85%] bg-[#DCF8C6] dark:bg-[#005c4b] text-slate-900 dark:text-slate-100 rounded-2xl rounded-tr-sm p-2.5 shadow-sm space-y-2 border border-emerald-600/10">
-          {/* Media preview inside bubble */}
-          {media && (
-            <div className="rounded-xl overflow-hidden aspect-video bg-slate-950 relative">
-              <img src={media.url} alt="" className="w-full h-full object-cover" />
-              {media.type === 'video' && (
-                <div className="absolute inset-0 flex items-center justify-center bg-black/40">
-                  <div className="w-10 h-10 rounded-full bg-black/70 text-white flex items-center justify-center">
-                    <Play className="w-5 h-5 fill-white ml-0.5" />
-                  </div>
-                </div>
-              )}
+      {/* Thread Body */}
+      <div className="text-xs leading-relaxed text-slate-900 dark:text-white space-y-1">
+        {title && <div className="font-bold">{title}</div>}
+        <p className="whitespace-pre-line">
+          {caption || 'Write your Threads post above to preview.'}
+        </p>
+        {hashtags.length > 0 && (
+          <div className="text-indigo-600 dark:text-indigo-400 font-medium pt-0.5">
+            {hashtags.join(' ')}
+          </div>
+        )}
+      </div>
+
+      {/* Attached Media Frame */}
+      {media && (
+        <div className="rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-800 aspect-video bg-slate-950 relative">
+          <img src={media.url} alt="" className="w-full h-full object-cover" />
+          {media.type === 'video' && (
+            <div className="absolute inset-0 flex items-center justify-center bg-black/30">
+              <div className="w-10 h-10 rounded-full bg-black/70 text-white flex items-center justify-center">
+                <Play className="w-5 h-5 fill-white ml-0.5" />
+              </div>
             </div>
           )}
-
-          {/* Formatted Text */}
-          <div className="text-xs leading-relaxed space-y-1">
-            {title && (
-              <div className="font-bold text-emerald-950 dark:text-emerald-100">
-                *{title}*
-              </div>
-            )}
-            <p className="whitespace-pre-line text-slate-800 dark:text-slate-200">
-              {caption || 'Add your caption above to preview WhatsApp format.'}
-            </p>
-            {hashtags.length > 0 && (
-              <div className="text-emerald-700 dark:text-emerald-300 font-medium">
-                {hashtags.join(' ')}
-              </div>
-            )}
-          </div>
-
-          {/* Timestamp and Double Check mark */}
-          <div className="flex items-center justify-end gap-1 text-[10px] text-slate-500 dark:text-slate-300 pt-0.5">
-            <span>14:20</span>
-            <CheckCheck className="w-3.5 h-3.5 text-blue-500" />
-          </div>
         </div>
+      )}
+
+      {/* Metrics Row */}
+      <div className="flex items-center gap-4 text-slate-500 dark:text-slate-400 text-xs pt-1 border-t border-slate-100 dark:border-slate-800/60">
+        <Heart className="w-4 h-4 hover:text-rose-500 cursor-pointer" />
+        <MessageCircle className="w-4 h-4 hover:text-slate-700 cursor-pointer" />
+        <Repeat className="w-4 h-4 hover:text-emerald-500 cursor-pointer" />
+        <Send className="w-4 h-4 hover:text-indigo-500 cursor-pointer" />
       </div>
     </div>
   );

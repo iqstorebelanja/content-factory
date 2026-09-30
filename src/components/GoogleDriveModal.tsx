@@ -40,7 +40,7 @@ export const GoogleDriveModal: React.FC<GoogleDriveModalProps> = ({
   const displayFiles = files.length > 0 ? files : [
     {
       id: 'gdrive-img-1',
-      name: 'Jangari_Dam_Scenic_Sunset.jpg',
+      name: 'Scenic_Sunset_Landscape.jpg',
       mimeType: 'image/jpeg',
       thumbnailLink: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=600&q=80',
       size: '2.4 MB'

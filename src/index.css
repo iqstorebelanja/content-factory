@@ -1,1 +1,111 @@
 @import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* =========================================================
+   LOLLIPOP RED-WHITE THEME (Android Lollipop + Red-White Candy Aesthetic)
+   Primary: #E53935 / #EF4444 | Rose Accent: #FB7185
+   Surface: #FFF7F7 | Cards: #FFFFFF | Border: #FECACA
+   Text: #1F2937 (Primary) / #6B7280 (Secondary)
+   ========================================================= */
+html.theme-lollipop,
+html.theme-lollipop body {
+  background-color: #FFF7F7 !important;
+  color: #1F2937 !important;
+}
+
+html.theme-lollipop .lollipop-shell {
+  background-color: #FFF7F7 !important;
+  color: #1F2937 !important;
+}
+
+html.theme-lollipop .lollipop-header {
+  background: linear-gradient(135deg, #E53935 0%, #EF4444 65%, #FB7185 100%) !important;
+  color: #FFFFFF !important;
+  border-bottom: 1px solid #FECACA !important;
+  box-shadow: 0 2px 10px rgba(229, 57, 53, 0.18);
+}
+
+html.theme-lollipop .lollipop-header span,
+html.theme-lollipop .lollipop-header div,
+html.theme-lollipop .lollipop-header button {
+  color: #FFFFFF !important;
+  border-color: rgba(255, 255, 255, 0.35) !important;
+}
+
+/* Warm off-white background surfaces and pure white cards */
+html.theme-lollipop .bg-slate-50,
+html.theme-lollipop .bg-slate-50\/50,
+html.theme-lollipop .bg-slate-50\/70,
+html.theme-lollipop .bg-slate-100 {
+  background-color: #FFF7F7 !important;
+}
+
+html.theme-lollipop .bg-white {
+  background-color: #FFFFFF !important;
+}
+
+/* Soft Rose / Red borders */
+html.theme-lollipop .border-slate-100,
+html.theme-lollipop .border-slate-200,
+html.theme-lollipop .border-slate-200\/70,
+html.theme-lollipop .border-slate-200\/80,
+html.theme-lollipop .border-slate-300 {
+  border-color: #FECACA !important;
+}
+
+/* High contrast typography */
+html.theme-lollipop .text-slate-900,
+html.theme-lollipop .text-slate-800 {
+  color: #1F2937 !important;
+}
+
+html.theme-lollipop .text-slate-600,
+html.theme-lollipop .text-slate-500,
+html.theme-lollipop .text-slate-400 {
+  color: #6B7280 !important;
+}
+
+/* Lollipop Crimson / Soft Rose accents replacing default indigo accents */
+html.theme-lollipop .bg-indigo-600,
+html.theme-lollipop .bg-indigo-500 {
+  background-color: #E53935 !important;
+  color: #FFFFFF !important;
+}
+
+html.theme-lollipop .hover\:bg-indigo-500:hover,
+html.theme-lollipop .hover\:bg-indigo-600:hover {
+  background-color: #EF4444 !important;
+}
+
+html.theme-lollipop .bg-indigo-50,
+html.theme-lollipop .bg-indigo-500\/10 {
+  background-color: #FFF1F2 !important;
+}
+
+html.theme-lollipop .text-indigo-600,
+html.theme-lollipop .text-indigo-700,
+html.theme-lollipop .text-indigo-500 {
+  color: #E53935 !important;
+}
+
+html.theme-lollipop .border-indigo-200,
+html.theme-lollipop .border-indigo-500,
+html.theme-lollipop .border-indigo-600 {
+  border-color: #FB7185 !important;
+}
+
+/* Rounded Lollipop cards & pill buttons */
+html.theme-lollipop .rounded-2xl,
+html.theme-lollipop .rounded-3xl {
+  border-radius: 1.25rem;
+  box-shadow: 0 2px 8px rgba(229, 57, 53, 0.05);
+}
+
+/* Automatically hide placeholder text when user taps/focuses input fields */
+input:focus::placeholder,
+textarea:focus::placeholder {
+  color: transparent !important;
+  opacity: 0 !important;
+}
+

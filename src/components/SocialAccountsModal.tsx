@@ -11,25 +11,30 @@ import {
   User, 
   Phone, 
   Save,
-  AlertCircle
+  AlertCircle,
+  Copy,
+  Power
 } from 'lucide-react';
 import { 
   UserSocialAccounts, 
   PlatformId,
+  AccountConnectionStatus,
   FacebookPageAccount,
   FacebookProfileAccount,
   InstagramAccount,
   TikTokAccount,
   YouTubeChannelAccount,
   TwitterAccount,
-  WhatsAppAccount
+  ThreadsAccount
 } from '../types';
 import { PLATFORMS } from '../data/platforms';
 import { 
   SAMPLE_DEMO_ACCOUNTS, 
   sanitizeUrl, 
   generateAccountId,
-  normalizeUserAccounts
+  normalizeUserAccounts,
+  validatePlatformUrl,
+  extractHandleFromUrl
 } from '../utils/socialAccounts';
 import { usePlanContext } from '../contexts/PlanContext';
 
@@ -39,17 +44,27 @@ interface SocialAccountsModalProps {
   accounts: UserSocialAccounts;
   onSave: (newAccounts: UserSocialAccounts) => void;
   initialFocusPlatform?: PlatformId | null;
+  initialEditAccountId?: string | null;
 }
 
-type PlatformTab = 'all' | 'facebook_page' | 'facebook_profile' | 'instagram' | 'tiktok' | 'youtube' | 'twitter' | 'whatsapp';
+type PlatformTab = 'all' | 'facebook_page' | 'facebook_profile' | 'instagram' | 'tiktok' | 'youtube' | 'twitter' | 'threads';
+
+const CONNECTION_STATUS_OPTIONS: AccountConnectionStatus[] = [
+  'Ready for Manual Share',
+  'Saved Profile Link',
+  'Manual Share',
+  'Not Connected'
+];
 
 export const SocialAccountsModal: React.FC<SocialAccountsModalProps> = ({
   isOpen,
   onClose,
   accounts,
   onSave,
-  initialFocusPlatform
+  initialFocusPlatform,
+  initialEditAccountId
 }) => {
+  const { canUseFeature, openUpgradeModal } = usePlanContext();
   const [formData, setFormData] = useState<UserSocialAccounts>(() => normalizeUserAccounts(accounts));
   const [activeTab, setActiveTab] = useState<PlatformTab>(
     (initialFocusPlatform as PlatformTab) || 'all'
@@ -59,33 +74,168 @@ export const SocialAccountsModal: React.FC<SocialAccountsModalProps> = ({
   const [saveToast, setSaveToast] = useState(false);
 
   // Temp draft states for add/edit form
-  const [fbDraft, setFbDraft] = useState({ pageName: '', pageUrl: '' });
-  const [fbProfDraft, setFbProfDraft] = useState({ profileName: '', profileUrl: '' });
-  const [igDraft, setIgDraft] = useState({ username: '', profileUrl: '' });
-  const [ttDraft, setTtDraft] = useState({ username: '', profileUrl: '' });
-  const [ytDraft, setYtDraft] = useState({ channelName: '', channelUrl: '' });
-  const [twDraft, setTwDraft] = useState({ username: '', profileUrl: '' });
-  const [waDraft, setWaDraft] = useState({ name: '', phoneNumber: '', waLink: '' });
+  const [fbDraft, setFbDraft] = useState({
+    pageName: '',
+    pageId: '',
+    pageUrl: '',
+    notes: '',
+    connectionStatus: 'Ready for Manual Share' as AccountConnectionStatus
+  });
+  const [fbProfDraft, setFbProfDraft] = useState({
+    profileName: '',
+    profileId: '',
+    profileUrl: '',
+    notes: '',
+    connectionStatus: 'Ready for Manual Share' as AccountConnectionStatus
+  });
+  const [igDraft, setIgDraft] = useState({
+    displayName: '',
+    username: '',
+    profileUrl: '',
+    notes: '',
+    connectionStatus: 'Ready for Manual Share' as AccountConnectionStatus
+  });
+  const [ttDraft, setTtDraft] = useState({
+    displayName: '',
+    username: '',
+    profileUrl: '',
+    notes: '',
+    connectionStatus: 'Ready for Manual Share' as AccountConnectionStatus
+  });
+  const [ytDraft, setYtDraft] = useState({
+    channelName: '',
+    channelId: '',
+    channelUrl: '',
+    notes: '',
+    connectionStatus: 'Ready for Manual Share' as AccountConnectionStatus
+  });
+  const [twDraft, setTwDraft] = useState({
+    displayName: '',
+    username: '',
+    profileUrl: '',
+    notes: '',
+    connectionStatus: 'Ready for Manual Share' as AccountConnectionStatus
+  });
+  const [thDraft, setThDraft] = useState({
+    displayName: '',
+    username: '',
+    profileUrl: '',
+    notes: '',
+    connectionStatus: 'Ready for Manual Share' as AccountConnectionStatus
+  });
   const [formError, setFormError] = useState<string | null>(null);
+
+  const updateAndPersist = (updater: (prev: UserSocialAccounts) => UserSocialAccounts) => {
+    const next = updater(formData);
+    setFormData(next);
+    onSave(next);
+  };
 
   useEffect(() => {
     if (isOpen) {
-      setFormData(normalizeUserAccounts(accounts));
+      const normalized = normalizeUserAccounts(accounts);
+      setFormData(normalized);
+      setFormError(null);
+
       if (initialFocusPlatform) {
         if (initialFocusPlatform === 'facebook_page' || initialFocusPlatform === 'facebook_profile') {
           setActiveTab('facebook_page');
-          setAddingForPlatform(initialFocusPlatform);
         } else {
           setActiveTab(initialFocusPlatform as PlatformTab);
-          setAddingForPlatform(initialFocusPlatform);
         }
       } else {
+        setActiveTab('all');
+      }
+
+      if (initialEditAccountId) {
+        setAddingForPlatform(null);
+        setEditingAccountId(initialEditAccountId);
+        const fbPage = normalized.facebook_page.find(i => i.id === initialEditAccountId);
+        if (fbPage) {
+          setFbDraft({
+            pageName: fbPage.pageName,
+            pageId: fbPage.pageId || '',
+            pageUrl: fbPage.isExamplePlaceholder ? '' : fbPage.pageUrl,
+            notes: fbPage.notes || '',
+            connectionStatus: fbPage.connectionStatus || 'Ready for Manual Share'
+          });
+          return;
+        }
+        const fbProf = normalized.facebook_profile.find(i => i.id === initialEditAccountId);
+        if (fbProf) {
+          setFbProfDraft({
+            profileName: fbProf.profileName,
+            profileId: fbProf.profileId || '',
+            profileUrl: fbProf.isExamplePlaceholder ? '' : fbProf.profileUrl,
+            notes: fbProf.notes || '',
+            connectionStatus: fbProf.connectionStatus || 'Ready for Manual Share'
+          });
+          return;
+        }
+        const ig = normalized.instagram.find(i => i.id === initialEditAccountId);
+        if (ig) {
+          setIgDraft({
+            displayName: ig.displayName || '',
+            username: ig.username,
+            profileUrl: ig.isExamplePlaceholder ? '' : ig.profileUrl,
+            notes: ig.notes || '',
+            connectionStatus: ig.connectionStatus || 'Ready for Manual Share'
+          });
+          return;
+        }
+        const tt = normalized.tiktok.find(i => i.id === initialEditAccountId);
+        if (tt) {
+          setTtDraft({
+            displayName: tt.displayName || '',
+            username: tt.username,
+            profileUrl: tt.isExamplePlaceholder ? '' : tt.profileUrl,
+            notes: tt.notes || '',
+            connectionStatus: tt.connectionStatus || 'Ready for Manual Share'
+          });
+          return;
+        }
+        const yt = normalized.youtube.find(i => i.id === initialEditAccountId);
+        if (yt) {
+          setYtDraft({
+            channelName: yt.channelName,
+            channelId: yt.channelId || '',
+            channelUrl: yt.isExamplePlaceholder ? '' : yt.channelUrl,
+            notes: yt.notes || '',
+            connectionStatus: yt.connectionStatus || 'Ready for Manual Share'
+          });
+          return;
+        }
+        const tw = normalized.twitter.find(i => i.id === initialEditAccountId);
+        if (tw) {
+          setTwDraft({
+            displayName: tw.displayName || '',
+            username: tw.username,
+            profileUrl: tw.isExamplePlaceholder ? '' : tw.profileUrl,
+            notes: tw.notes || '',
+            connectionStatus: tw.connectionStatus || 'Ready for Manual Share'
+          });
+          return;
+        }
+        const th = (normalized.threads || []).find(i => i.id === initialEditAccountId);
+        if (th) {
+          setThDraft({
+            displayName: th.displayName || '',
+            username: th.username,
+            profileUrl: th.isExamplePlaceholder ? '' : th.profileUrl,
+            notes: th.notes || '',
+            connectionStatus: th.connectionStatus || 'Ready for Manual Share'
+          });
+          return;
+        }
+      } else if (initialFocusPlatform) {
+        setEditingAccountId(null);
+        setAddingForPlatform(initialFocusPlatform);
+      } else {
+        setEditingAccountId(null);
         setAddingForPlatform(null);
       }
-      setEditingAccountId(null);
-      setFormError(null);
     }
-  }, [isOpen, accounts, initialFocusPlatform]);
+  }, [isOpen, initialFocusPlatform, initialEditAccountId]);
 
   if (!isOpen) return null;
 
@@ -99,33 +249,41 @@ export const SocialAccountsModal: React.FC<SocialAccountsModalProps> = ({
   };
 
   const handleFillDemo = () => {
+    try {
+      localStorage.removeItem('sss_accounts_cleared_by_user');
+    } catch {}
     setFormData(SAMPLE_DEMO_ACCOUNTS);
+    onSave(SAMPLE_DEMO_ACCOUNTS);
     setEditingAccountId(null);
     setAddingForPlatform(null);
   };
 
   const handleClearAll = () => {
     if (window.confirm('Are you sure you want to remove all configured accounts?')) {
-      setFormData({
+      try {
+        localStorage.setItem('sss_accounts_cleared_by_user', 'true');
+      } catch {}
+      const empty: UserSocialAccounts = {
         facebook_page: [],
         facebook_profile: [],
         instagram: [],
         tiktok: [],
         youtube: [],
         twitter: [],
-        whatsapp: []
-      });
+        threads: []
+      };
+      setFormData(empty);
+      onSave(empty);
       setEditingAccountId(null);
       setAddingForPlatform(null);
     }
   };
 
   // --- Handlers for Facebook Pages ---
-  const { canUseFeature, openUpgradeModal } = usePlanContext();
-
   const checkCanAddAccount = (pId: PlatformId): boolean => {
-    const list = formData[pId] || [];
-    const check = canUseFeature('accounts_per_platform', list.length);
+    const list = (formData[pId] || []) as any[];
+    const nonExampleCount = list.filter(item => !item.isExamplePlaceholder).length;
+    const check = canUseFeature('accounts_per_platform', nonExampleCount);
     if (!check.allowed) {
       openUpgradeModal('Social Accounts', check.reason || 'Account limit reached for this platform on your plan.');
       return false;
@@ -135,33 +293,49 @@ export const SocialAccountsModal: React.FC<SocialAccountsModalProps> = ({
 
   const startAddFacebook = () => {
     if (!checkCanAddAccount('facebook_page')) return;
-    setFbDraft({ pageName: '', pageUrl: '' });
+    setFbDraft({ pageName: '', pageId: '', pageUrl: '', notes: '', connectionStatus: 'Ready for Manual Share' });
     setAddingForPlatform('facebook_page');
     setEditingAccountId(null);
     setFormError(null);
   };
 
   const startEditFacebook = (item: FacebookPageAccount) => {
-    setFbDraft({ pageName: item.pageName, pageUrl: item.pageUrl });
+    setFbDraft({
+      pageName: item.pageName,
+      pageId: item.pageId || '',
+      pageUrl: item.isExamplePlaceholder ? '' : item.pageUrl,
+      notes: item.notes || '',
+      connectionStatus: item.connectionStatus || 'Ready for Manual Share'
+    });
     setEditingAccountId(item.id);
     setAddingForPlatform(null);
     setFormError(null);
   };
 
   const saveFacebookItem = () => {
-    if (!fbDraft.pageName.trim() && !fbDraft.pageUrl.trim()) {
-      setFormError('Please enter at least a Page Name or Page URL');
+    const validation = validatePlatformUrl('facebook_page', fbDraft.pageUrl, fbDraft.pageId || fbDraft.pageName);
+    if (!validation.valid) {
+      setFormError(validation.error || 'Please enter a valid Facebook Page URL');
       return;
     }
-    const cleanUrl = sanitizeUrl(fbDraft.pageUrl) || (fbDraft.pageName.trim() ? `https://facebook.com/${encodeURIComponent(fbDraft.pageName.trim())}` : '');
-    const cleanName = fbDraft.pageName.trim() || 'Facebook Page';
+    const cleanUrl = validation.sanitizedUrl;
+    const extracted = extractHandleFromUrl(cleanUrl);
+    const cleanName = fbDraft.pageName.trim() || extracted || 'Facebook Page';
 
     if (editingAccountId) {
-      setFormData(prev => ({
+      updateAndPersist(prev => ({
         ...prev,
         facebook_page: prev.facebook_page.map(item => 
           item.id === editingAccountId 
-            ? { ...item, pageName: cleanName, pageUrl: cleanUrl } 
+            ? {
+                ...item,
+                pageName: cleanName,
+                pageId: fbDraft.pageId.trim() || extracted || undefined,
+                pageUrl: cleanUrl,
+                notes: fbDraft.notes.trim() || undefined,
+                connectionStatus: 'Ready for Manual Share',
+                isExamplePlaceholder: false
+              }
             : item
         )
       }));
@@ -169,9 +343,14 @@ export const SocialAccountsModal: React.FC<SocialAccountsModalProps> = ({
       const newItem: FacebookPageAccount = {
         id: generateAccountId('fb'),
         pageName: cleanName,
-        pageUrl: cleanUrl
+        pageId: fbDraft.pageId.trim() || extracted || undefined,
+        pageUrl: cleanUrl,
+        notes: fbDraft.notes.trim() || undefined,
+        enabled: true,
+        connectionStatus: 'Ready for Manual Share',
+        isExamplePlaceholder: false
       };
-      setFormData(prev => ({
+      updateAndPersist(prev => ({
         ...prev,
         facebook_page: [...prev.facebook_page, newItem]
       }));
@@ -181,8 +360,29 @@ export const SocialAccountsModal: React.FC<SocialAccountsModalProps> = ({
     setFormError(null);
   };
 
+  const duplicateFacebookItem = (item: FacebookPageAccount) => {
+    if (!checkCanAddAccount('facebook_page')) return;
+    const copy: FacebookPageAccount = {
+      ...item,
+      id: generateAccountId('fb'),
+      pageName: `${item.pageName} (Copy)`,
+      isExamplePlaceholder: false
+    };
+    updateAndPersist(prev => ({
+      ...prev,
+      facebook_page: [...prev.facebook_page, copy]
+    }));
+  };
+
+  const toggleFacebookItem = (id: string) => {
+    updateAndPersist(prev => ({
+      ...prev,
+      facebook_page: prev.facebook_page.map(i => i.id === id ? { ...i, enabled: i.enabled === false ? true : false } : i)
+    }));
+  };
+
   const deleteFacebookItem = (id: string) => {
-    setFormData(prev => ({
+    updateAndPersist(prev => ({
       ...prev,
       facebook_page: prev.facebook_page.filter(i => i.id !== id)
     }));
@@ -192,33 +392,49 @@ export const SocialAccountsModal: React.FC<SocialAccountsModalProps> = ({
   // --- Handlers for Facebook Personal Profiles ---
   const startAddFacebookProfile = () => {
     if (!checkCanAddAccount('facebook_profile')) return;
-    setFbProfDraft({ profileName: '', profileUrl: '' });
+    setFbProfDraft({ profileName: '', profileId: '', profileUrl: '', notes: '', connectionStatus: 'Ready for Manual Share' });
     setAddingForPlatform('facebook_profile');
     setEditingAccountId(null);
     setFormError(null);
   };
 
   const startEditFacebookProfile = (item: FacebookProfileAccount) => {
-    setFbProfDraft({ profileName: item.profileName, profileUrl: item.profileUrl });
+    setFbProfDraft({
+      profileName: item.profileName,
+      profileId: item.profileId || '',
+      profileUrl: item.isExamplePlaceholder ? '' : item.profileUrl,
+      notes: item.notes || '',
+      connectionStatus: item.connectionStatus || 'Ready for Manual Share'
+    });
     setEditingAccountId(item.id);
     setAddingForPlatform(null);
     setFormError(null);
   };
 
   const saveFacebookProfileItem = () => {
-    if (!fbProfDraft.profileName.trim() && !fbProfDraft.profileUrl.trim()) {
-      setFormError('Please enter at least a Profile Name or Profile URL');
+    const validation = validatePlatformUrl('facebook_profile', fbProfDraft.profileUrl, fbProfDraft.profileId || fbProfDraft.profileName);
+    if (!validation.valid) {
+      setFormError(validation.error || 'Please enter a valid Facebook Profile URL');
       return;
     }
-    const cleanUrl = sanitizeUrl(fbProfDraft.profileUrl) || (fbProfDraft.profileName.trim() ? `https://facebook.com/${encodeURIComponent(fbProfDraft.profileName.trim())}` : '');
-    const cleanName = fbProfDraft.profileName.trim() || 'Personal Profile';
+    const cleanUrl = validation.sanitizedUrl;
+    const extracted = extractHandleFromUrl(cleanUrl);
+    const cleanName = fbProfDraft.profileName.trim() || extracted || 'Personal Profile';
 
     if (editingAccountId) {
-      setFormData(prev => ({
+      updateAndPersist(prev => ({
         ...prev,
         facebook_profile: prev.facebook_profile.map(item => 
           item.id === editingAccountId 
-            ? { ...item, profileName: cleanName, profileUrl: cleanUrl } 
+            ? {
+                ...item,
+                profileName: cleanName,
+                profileId: fbProfDraft.profileId.trim() || extracted || undefined,
+                profileUrl: cleanUrl,
+                notes: fbProfDraft.notes.trim() || undefined,
+                connectionStatus: 'Ready for Manual Share',
+                isExamplePlaceholder: false
+              }
             : item
         )
       }));
@@ -226,9 +442,14 @@ export const SocialAccountsModal: React.FC<SocialAccountsModalProps> = ({
       const newItem: FacebookProfileAccount = {
         id: generateAccountId('fb_prof'),
         profileName: cleanName,
-        profileUrl: cleanUrl
+        profileId: fbProfDraft.profileId.trim() || extracted || undefined,
+        profileUrl: cleanUrl,
+        notes: fbProfDraft.notes.trim() || undefined,
+        enabled: true,
+        connectionStatus: 'Ready for Manual Share',
+        isExamplePlaceholder: false
       };
-      setFormData(prev => ({
+      updateAndPersist(prev => ({
         ...prev,
         facebook_profile: [...prev.facebook_profile, newItem]
       }));
@@ -238,8 +459,29 @@ export const SocialAccountsModal: React.FC<SocialAccountsModalProps> = ({
     setFormError(null);
   };
 
+  const duplicateFacebookProfileItem = (item: FacebookProfileAccount) => {
+    if (!checkCanAddAccount('facebook_profile')) return;
+    const copy: FacebookProfileAccount = {
+      ...item,
+      id: generateAccountId('fb_prof'),
+      profileName: `${item.profileName} (Copy)`,
+      isExamplePlaceholder: false
+    };
+    updateAndPersist(prev => ({
+      ...prev,
+      facebook_profile: [...prev.facebook_profile, copy]
+    }));
+  };
+
+  const toggleFacebookProfileItem = (id: string) => {
+    updateAndPersist(prev => ({
+      ...prev,
+      facebook_profile: prev.facebook_profile.map(i => i.id === id ? { ...i, enabled: i.enabled === false ? true : false } : i)
+    }));
+  };
+
   const deleteFacebookProfileItem = (id: string) => {
-    setFormData(prev => ({
+    updateAndPersist(prev => ({
       ...prev,
       facebook_profile: prev.facebook_profile.filter(i => i.id !== id)
     }));
@@ -249,43 +491,65 @@ export const SocialAccountsModal: React.FC<SocialAccountsModalProps> = ({
   // --- Handlers for Instagram ---
   const startAddInstagram = () => {
     if (!checkCanAddAccount('instagram')) return;
-    setIgDraft({ username: '', profileUrl: '' });
+    setIgDraft({ displayName: '', username: '', profileUrl: '', notes: '', connectionStatus: 'Ready for Manual Share' });
     setAddingForPlatform('instagram');
     setEditingAccountId(null);
     setFormError(null);
   };
 
   const startEditInstagram = (item: InstagramAccount) => {
-    setIgDraft({ username: item.username, profileUrl: item.profileUrl });
+    setIgDraft({
+      displayName: item.displayName || '',
+      username: item.username,
+      profileUrl: item.isExamplePlaceholder ? '' : item.profileUrl,
+      notes: item.notes || '',
+      connectionStatus: item.connectionStatus || 'Ready for Manual Share'
+    });
     setEditingAccountId(item.id);
     setAddingForPlatform(null);
     setFormError(null);
   };
 
   const saveInstagramItem = () => {
-    const cleanUser = igDraft.username.replace(/^@/, '').trim();
-    if (!cleanUser && !igDraft.profileUrl.trim()) {
-      setFormError('Please enter at least a Username or Profile URL');
+    const validation = validatePlatformUrl('instagram', igDraft.profileUrl, igDraft.username || igDraft.displayName);
+    if (!validation.valid) {
+      setFormError(validation.error || 'Please enter a valid Instagram URL or Username');
       return;
     }
-    const cleanUrl = sanitizeUrl(igDraft.profileUrl) || (cleanUser ? `https://instagram.com/${cleanUser}` : '');
+    const cleanUrl = validation.sanitizedUrl;
+    const extracted = extractHandleFromUrl(cleanUrl);
+    const typedUser = igDraft.username.replace(/^@/, '').trim();
+    const cleanUser = (typedUser && typedUser !== 'your-account') ? typedUser : (extracted || typedUser || 'instagram');
 
     if (editingAccountId) {
-      setFormData(prev => ({
+      updateAndPersist(prev => ({
         ...prev,
         instagram: prev.instagram.map(item => 
           item.id === editingAccountId 
-            ? { ...item, username: cleanUser, profileUrl: cleanUrl } 
+            ? {
+                ...item,
+                displayName: igDraft.displayName.trim() || undefined,
+                username: cleanUser,
+                profileUrl: cleanUrl,
+                notes: igDraft.notes.trim() || undefined,
+                connectionStatus: 'Ready for Manual Share',
+                isExamplePlaceholder: false
+              }
             : item
         )
       }));
     } else {
       const newItem: InstagramAccount = {
         id: generateAccountId('ig'),
+        displayName: igDraft.displayName.trim() || undefined,
         username: cleanUser,
-        profileUrl: cleanUrl
+        profileUrl: cleanUrl,
+        notes: igDraft.notes.trim() || undefined,
+        enabled: true,
+        connectionStatus: 'Ready for Manual Share',
+        isExamplePlaceholder: false
       };
-      setFormData(prev => ({
+      updateAndPersist(prev => ({
         ...prev,
         instagram: [...prev.instagram, newItem]
       }));
@@ -295,8 +559,30 @@ export const SocialAccountsModal: React.FC<SocialAccountsModalProps> = ({
     setFormError(null);
   };
 
+  const duplicateInstagramItem = (item: InstagramAccount) => {
+    if (!checkCanAddAccount('instagram')) return;
+    const copy: InstagramAccount = {
+      ...item,
+      id: generateAccountId('ig'),
+      displayName: item.displayName ? `${item.displayName} (Copy)` : undefined,
+      username: item.username ? `${item.username}_copy` : 'instagram_copy',
+      isExamplePlaceholder: false
+    };
+    updateAndPersist(prev => ({
+      ...prev,
+      instagram: [...prev.instagram, copy]
+    }));
+  };
+
+  const toggleInstagramItem = (id: string) => {
+    updateAndPersist(prev => ({
+      ...prev,
+      instagram: prev.instagram.map(i => i.id === id ? { ...i, enabled: i.enabled === false ? true : false } : i)
+    }));
+  };
+
   const deleteInstagramItem = (id: string) => {
-    setFormData(prev => ({
+    updateAndPersist(prev => ({
       ...prev,
       instagram: prev.instagram.filter(i => i.id !== id)
     }));
@@ -306,43 +592,65 @@ export const SocialAccountsModal: React.FC<SocialAccountsModalProps> = ({
   // --- Handlers for TikTok ---
   const startAddTikTok = () => {
     if (!checkCanAddAccount('tiktok')) return;
-    setTtDraft({ username: '', profileUrl: '' });
+    setTtDraft({ displayName: '', username: '', profileUrl: '', notes: '', connectionStatus: 'Ready for Manual Share' });
     setAddingForPlatform('tiktok');
     setEditingAccountId(null);
     setFormError(null);
   };
 
   const startEditTikTok = (item: TikTokAccount) => {
-    setTtDraft({ username: item.username, profileUrl: item.profileUrl });
+    setTtDraft({
+      displayName: item.displayName || '',
+      username: item.username,
+      profileUrl: item.isExamplePlaceholder ? '' : item.profileUrl,
+      notes: item.notes || '',
+      connectionStatus: item.connectionStatus || 'Ready for Manual Share'
+    });
     setEditingAccountId(item.id);
     setAddingForPlatform(null);
     setFormError(null);
   };
 
   const saveTikTokItem = () => {
-    const cleanUser = ttDraft.username.replace(/^@/, '').trim();
-    if (!cleanUser && !ttDraft.profileUrl.trim()) {
-      setFormError('Please enter at least a Username or Profile URL');
+    const validation = validatePlatformUrl('tiktok', ttDraft.profileUrl, ttDraft.username || ttDraft.displayName);
+    if (!validation.valid) {
+      setFormError(validation.error || 'Please enter a valid TikTok URL or Username');
       return;
     }
-    const cleanUrl = sanitizeUrl(ttDraft.profileUrl) || (cleanUser ? `https://tiktok.com/@${cleanUser}` : '');
+    const cleanUrl = validation.sanitizedUrl;
+    const extracted = extractHandleFromUrl(cleanUrl);
+    const typedUser = ttDraft.username.replace(/^@/, '').trim();
+    const cleanUser = (typedUser && typedUser !== 'your-account') ? typedUser : (extracted || typedUser || 'tiktok');
 
     if (editingAccountId) {
-      setFormData(prev => ({
+      updateAndPersist(prev => ({
         ...prev,
         tiktok: prev.tiktok.map(item => 
           item.id === editingAccountId 
-            ? { ...item, username: cleanUser, profileUrl: cleanUrl } 
+            ? {
+                ...item,
+                displayName: ttDraft.displayName.trim() || undefined,
+                username: cleanUser,
+                profileUrl: cleanUrl,
+                notes: ttDraft.notes.trim() || undefined,
+                connectionStatus: 'Ready for Manual Share',
+                isExamplePlaceholder: false
+              }
             : item
         )
       }));
     } else {
       const newItem: TikTokAccount = {
         id: generateAccountId('tt'),
+        displayName: ttDraft.displayName.trim() || undefined,
         username: cleanUser,
-        profileUrl: cleanUrl
+        profileUrl: cleanUrl,
+        notes: ttDraft.notes.trim() || undefined,
+        enabled: true,
+        connectionStatus: 'Ready for Manual Share',
+        isExamplePlaceholder: false
       };
-      setFormData(prev => ({
+      updateAndPersist(prev => ({
         ...prev,
         tiktok: [...prev.tiktok, newItem]
       }));
@@ -352,8 +660,30 @@ export const SocialAccountsModal: React.FC<SocialAccountsModalProps> = ({
     setFormError(null);
   };
 
+  const duplicateTikTokItem = (item: TikTokAccount) => {
+    if (!checkCanAddAccount('tiktok')) return;
+    const copy: TikTokAccount = {
+      ...item,
+      id: generateAccountId('tt'),
+      displayName: item.displayName ? `${item.displayName} (Copy)` : undefined,
+      username: item.username ? `${item.username}_copy` : 'tiktok_copy',
+      isExamplePlaceholder: false
+    };
+    updateAndPersist(prev => ({
+      ...prev,
+      tiktok: [...prev.tiktok, copy]
+    }));
+  };
+
+  const toggleTikTokItem = (id: string) => {
+    updateAndPersist(prev => ({
+      ...prev,
+      tiktok: prev.tiktok.map(i => i.id === id ? { ...i, enabled: i.enabled === false ? true : false } : i)
+    }));
+  };
+
   const deleteTikTokItem = (id: string) => {
-    setFormData(prev => ({
+    updateAndPersist(prev => ({
       ...prev,
       tiktok: prev.tiktok.filter(i => i.id !== id)
     }));
@@ -363,33 +693,49 @@ export const SocialAccountsModal: React.FC<SocialAccountsModalProps> = ({
   // --- Handlers for YouTube ---
   const startAddYouTube = () => {
     if (!checkCanAddAccount('youtube')) return;
-    setYtDraft({ channelName: '', channelUrl: '' });
+    setYtDraft({ channelName: '', channelId: '', channelUrl: '', notes: '', connectionStatus: 'Ready for Manual Share' });
     setAddingForPlatform('youtube');
     setEditingAccountId(null);
     setFormError(null);
   };
 
   const startEditYouTube = (item: YouTubeChannelAccount) => {
-    setYtDraft({ channelName: item.channelName, channelUrl: item.channelUrl });
+    setYtDraft({
+      channelName: item.channelName,
+      channelId: item.channelId || '',
+      channelUrl: item.isExamplePlaceholder ? '' : item.channelUrl,
+      notes: item.notes || '',
+      connectionStatus: item.connectionStatus || 'Ready for Manual Share'
+    });
     setEditingAccountId(item.id);
     setAddingForPlatform(null);
     setFormError(null);
   };
 
   const saveYouTubeItem = () => {
-    if (!ytDraft.channelName.trim() && !ytDraft.channelUrl.trim()) {
-      setFormError('Please enter at least a Channel Name or Channel URL');
+    const validation = validatePlatformUrl('youtube', ytDraft.channelUrl, ytDraft.channelId || ytDraft.channelName);
+    if (!validation.valid) {
+      setFormError(validation.error || 'Please enter a valid YouTube Channel URL');
       return;
     }
-    const cleanName = ytDraft.channelName.trim() || 'YouTube Channel';
-    const cleanUrl = sanitizeUrl(ytDraft.channelUrl) || `https://youtube.com/results?search_query=${encodeURIComponent(cleanName)}`;
+    const cleanUrl = validation.sanitizedUrl;
+    const extracted = extractHandleFromUrl(cleanUrl);
+    const cleanName = ytDraft.channelName.trim() || extracted || 'YouTube Channel';
 
     if (editingAccountId) {
-      setFormData(prev => ({
+      updateAndPersist(prev => ({
         ...prev,
         youtube: prev.youtube.map(item => 
           item.id === editingAccountId 
-            ? { ...item, channelName: cleanName, channelUrl: cleanUrl } 
+            ? {
+                ...item,
+                channelName: cleanName,
+                channelId: ytDraft.channelId.trim() || (extracted ? `@${extracted}` : undefined),
+                channelUrl: cleanUrl,
+                notes: ytDraft.notes.trim() || undefined,
+                connectionStatus: 'Ready for Manual Share',
+                isExamplePlaceholder: false
+              }
             : item
         )
       }));
@@ -397,9 +743,14 @@ export const SocialAccountsModal: React.FC<SocialAccountsModalProps> = ({
       const newItem: YouTubeChannelAccount = {
         id: generateAccountId('yt'),
         channelName: cleanName,
-        channelUrl: cleanUrl
+        channelId: ytDraft.channelId.trim() || (extracted ? `@${extracted}` : undefined),
+        channelUrl: cleanUrl,
+        notes: ytDraft.notes.trim() || undefined,
+        enabled: true,
+        connectionStatus: 'Ready for Manual Share',
+        isExamplePlaceholder: false
       };
-      setFormData(prev => ({
+      updateAndPersist(prev => ({
         ...prev,
         youtube: [...prev.youtube, newItem]
       }));
@@ -409,8 +760,29 @@ export const SocialAccountsModal: React.FC<SocialAccountsModalProps> = ({
     setFormError(null);
   };
 
+  const duplicateYouTubeItem = (item: YouTubeChannelAccount) => {
+    if (!checkCanAddAccount('youtube')) return;
+    const copy: YouTubeChannelAccount = {
+      ...item,
+      id: generateAccountId('yt'),
+      channelName: `${item.channelName} (Copy)`,
+      isExamplePlaceholder: false
+    };
+    updateAndPersist(prev => ({
+      ...prev,
+      youtube: [...prev.youtube, copy]
+    }));
+  };
+
+  const toggleYouTubeItem = (id: string) => {
+    updateAndPersist(prev => ({
+      ...prev,
+      youtube: prev.youtube.map(i => i.id === id ? { ...i, enabled: i.enabled === false ? true : false } : i)
+    }));
+  };
+
   const deleteYouTubeItem = (id: string) => {
-    setFormData(prev => ({
+    updateAndPersist(prev => ({
       ...prev,
       youtube: prev.youtube.filter(i => i.id !== id)
     }));
@@ -420,43 +792,65 @@ export const SocialAccountsModal: React.FC<SocialAccountsModalProps> = ({
   // --- Handlers for Twitter / X ---
   const startAddTwitter = () => {
     if (!checkCanAddAccount('twitter')) return;
-    setTwDraft({ username: '', profileUrl: '' });
+    setTwDraft({ displayName: '', username: '', profileUrl: '', notes: '', connectionStatus: 'Ready for Manual Share' });
     setAddingForPlatform('twitter');
     setEditingAccountId(null);
     setFormError(null);
   };
 
   const startEditTwitter = (item: TwitterAccount) => {
-    setTwDraft({ username: item.username, profileUrl: item.profileUrl });
+    setTwDraft({
+      displayName: item.displayName || '',
+      username: item.username,
+      profileUrl: item.isExamplePlaceholder ? '' : item.profileUrl,
+      notes: item.notes || '',
+      connectionStatus: item.connectionStatus || 'Ready for Manual Share'
+    });
     setEditingAccountId(item.id);
     setAddingForPlatform(null);
     setFormError(null);
   };
 
   const saveTwitterItem = () => {
-    const cleanUser = twDraft.username.replace(/^@/, '').trim();
-    if (!cleanUser && !twDraft.profileUrl.trim()) {
-      setFormError('Please enter at least a Username or Profile URL');
+    const validation = validatePlatformUrl('twitter', twDraft.profileUrl, twDraft.username || twDraft.displayName);
+    if (!validation.valid) {
+      setFormError(validation.error || 'Please enter a valid X Profile URL or Username');
       return;
     }
-    const cleanUrl = sanitizeUrl(twDraft.profileUrl) || (cleanUser ? `https://x.com/${cleanUser}` : '');
+    const cleanUrl = validation.sanitizedUrl;
+    const extracted = extractHandleFromUrl(cleanUrl);
+    const typedUser = twDraft.username.replace(/^@/, '').trim();
+    const cleanUser = (typedUser && typedUser !== 'your-account') ? typedUser : (extracted || typedUser || 'x_account');
 
     if (editingAccountId) {
-      setFormData(prev => ({
+      updateAndPersist(prev => ({
         ...prev,
         twitter: prev.twitter.map(item => 
           item.id === editingAccountId 
-            ? { ...item, username: cleanUser, profileUrl: cleanUrl } 
+            ? {
+                ...item,
+                displayName: twDraft.displayName.trim() || undefined,
+                username: cleanUser,
+                profileUrl: cleanUrl,
+                notes: twDraft.notes.trim() || undefined,
+                connectionStatus: 'Ready for Manual Share',
+                isExamplePlaceholder: false
+              }
             : item
         )
       }));
     } else {
       const newItem: TwitterAccount = {
         id: generateAccountId('x'),
+        displayName: twDraft.displayName.trim() || undefined,
         username: cleanUser,
-        profileUrl: cleanUrl
+        profileUrl: cleanUrl,
+        notes: twDraft.notes.trim() || undefined,
+        enabled: true,
+        connectionStatus: 'Ready for Manual Share',
+        isExamplePlaceholder: false
       };
-      setFormData(prev => ({
+      updateAndPersist(prev => ({
         ...prev,
         twitter: [...prev.twitter, newItem]
       }));
@@ -466,59 +860,100 @@ export const SocialAccountsModal: React.FC<SocialAccountsModalProps> = ({
     setFormError(null);
   };
 
+  const duplicateTwitterItem = (item: TwitterAccount) => {
+    if (!checkCanAddAccount('twitter')) return;
+    const copy: TwitterAccount = {
+      ...item,
+      id: generateAccountId('x'),
+      displayName: item.displayName ? `${item.displayName} (Copy)` : undefined,
+      username: item.username ? `${item.username}_copy` : 'x_copy',
+      isExamplePlaceholder: false
+    };
+    updateAndPersist(prev => ({
+      ...prev,
+      twitter: [...prev.twitter, copy]
+    }));
+  };
+
+  const toggleTwitterItem = (id: string) => {
+    updateAndPersist(prev => ({
+      ...prev,
+      twitter: prev.twitter.map(i => i.id === id ? { ...i, enabled: i.enabled === false ? true : false } : i)
+    }));
+  };
+
   const deleteTwitterItem = (id: string) => {
-    setFormData(prev => ({
+    updateAndPersist(prev => ({
       ...prev,
       twitter: prev.twitter.filter(i => i.id !== id)
     }));
     if (editingAccountId === id) setEditingAccountId(null);
   };
 
-  // --- Handlers for WhatsApp ---
-  const startAddWhatsApp = () => {
-    if (!checkCanAddAccount('whatsapp')) return;
-    setWaDraft({ name: '', phoneNumber: '', waLink: '' });
-    setAddingForPlatform('whatsapp');
+  // --- Handlers for Threads ---
+  const startAddThreads = () => {
+    if (!checkCanAddAccount('threads')) return;
+    setThDraft({ displayName: '', username: '', profileUrl: '', notes: '', connectionStatus: 'Ready for Manual Share' });
+    setAddingForPlatform('threads');
     setEditingAccountId(null);
     setFormError(null);
   };
 
-  const startEditWhatsApp = (item: WhatsAppAccount) => {
-    setWaDraft({ name: item.name, phoneNumber: item.phoneNumber, waLink: item.waLink || '' });
+  const startEditThreads = (item: ThreadsAccount) => {
+    setThDraft({
+      displayName: item.displayName || '',
+      username: item.username,
+      profileUrl: item.isExamplePlaceholder ? '' : item.profileUrl,
+      notes: item.notes || '',
+      connectionStatus: item.connectionStatus || 'Ready for Manual Share'
+    });
     setEditingAccountId(item.id);
     setAddingForPlatform(null);
     setFormError(null);
   };
 
-  const saveWhatsAppItem = () => {
-    const cleanPhone = waDraft.phoneNumber.trim();
-    const cleanName = waDraft.name.trim() || (cleanPhone ? `WA: ${cleanPhone}` : 'WhatsApp Contact');
-    if (!cleanPhone && !waDraft.waLink.trim() && !cleanName) {
-      setFormError('Please enter at least an Account Name or WhatsApp Number');
+  const saveThreadsItem = () => {
+    const validation = validatePlatformUrl('threads', thDraft.profileUrl, thDraft.username || thDraft.displayName);
+    if (!validation.valid) {
+      setFormError(validation.error || 'Please enter a valid Threads Profile URL (https://threads.com/@jhon.doe)');
       return;
     }
-    const cleanNumeric = cleanPhone.replace(/[^0-9]/g, '');
-    const cleanLink = sanitizeUrl(waDraft.waLink) || (cleanNumeric ? `https://wa.me/${cleanNumeric}` : '');
+    const cleanUrl = validation.sanitizedUrl;
+    const extracted = extractHandleFromUrl(cleanUrl);
+    const typedUser = thDraft.username.replace(/^@/, '').trim();
+    const cleanUser = (typedUser && typedUser !== 'your-account') ? typedUser : (extracted || typedUser || 'threads_account');
 
     if (editingAccountId) {
-      setFormData(prev => ({
+      updateAndPersist(prev => ({
         ...prev,
-        whatsapp: prev.whatsapp.map(item => 
+        threads: (prev.threads || []).map(item => 
           item.id === editingAccountId 
-            ? { ...item, name: cleanName, phoneNumber: cleanPhone, waLink: cleanLink } 
+            ? {
+                ...item,
+                displayName: thDraft.displayName.trim() || undefined,
+                username: cleanUser,
+                profileUrl: cleanUrl,
+                notes: thDraft.notes.trim() || undefined,
+                connectionStatus: 'Ready for Manual Share',
+                isExamplePlaceholder: false
+              }
             : item
         )
       }));
     } else {
-      const newItem: WhatsAppAccount = {
-        id: generateAccountId('wa'),
-        name: cleanName,
-        phoneNumber: cleanPhone,
-        waLink: cleanLink
+      const newItem: ThreadsAccount = {
+        id: generateAccountId('th'),
+        displayName: thDraft.displayName.trim() || undefined,
+        username: cleanUser,
+        profileUrl: cleanUrl,
+        notes: thDraft.notes.trim() || undefined,
+        enabled: true,
+        connectionStatus: 'Ready for Manual Share',
+        isExamplePlaceholder: false
       };
-      setFormData(prev => ({
+      updateAndPersist(prev => ({
         ...prev,
-        whatsapp: [...prev.whatsapp, newItem]
+        threads: [...(prev.threads || []), newItem]
       }));
     }
     setEditingAccountId(null);
@@ -526,12 +961,112 @@ export const SocialAccountsModal: React.FC<SocialAccountsModalProps> = ({
     setFormError(null);
   };
 
-  const deleteWhatsAppItem = (id: string) => {
-    setFormData(prev => ({
+  const duplicateThreadsItem = (item: ThreadsAccount) => {
+    if (!checkCanAddAccount('threads')) return;
+    const copy: ThreadsAccount = {
+      ...item,
+      id: generateAccountId('th'),
+      displayName: item.displayName ? `${item.displayName} (Copy)` : undefined,
+      username: item.username ? `${item.username}_copy` : 'threads_copy',
+      isExamplePlaceholder: false
+    };
+    updateAndPersist(prev => ({
       ...prev,
-      whatsapp: prev.whatsapp.filter(i => i.id !== id)
+      threads: [...(prev.threads || []), copy]
+    }));
+  };
+
+  const toggleThreadsItem = (id: string) => {
+    updateAndPersist(prev => ({
+      ...prev,
+      threads: (prev.threads || []).map(i => i.id === id ? { ...i, enabled: i.enabled === false ? true : false } : i)
+    }));
+  };
+
+  const deleteThreadsItem = (id: string) => {
+    updateAndPersist(prev => ({
+      ...prev,
+      threads: (prev.threads || []).filter(i => i.id !== id)
     }));
     if (editingAccountId === id) setEditingAccountId(null);
+  };
+
+  const handleDirectCardUrlUpdate = (platformId: PlatformId, accountId: string, newUrlValue: string) => {
+    const trimmed = newUrlValue.trim();
+    const extracted = extractHandleFromUrl(trimmed);
+    updateAndPersist(prev => {
+      if (platformId === 'facebook_page') {
+        return {
+          ...prev,
+          facebook_page: prev.facebook_page.map(i =>
+            i.id === accountId
+              ? { ...i, pageUrl: trimmed, isExamplePlaceholder: !trimmed, connectionStatus: 'Ready for Manual Share' }
+              : i
+          )
+        };
+      }
+      if (platformId === 'facebook_profile') {
+        return {
+          ...prev,
+          facebook_profile: (prev.facebook_profile || []).map(i =>
+            i.id === accountId
+              ? { ...i, profileUrl: trimmed, isExamplePlaceholder: !trimmed, connectionStatus: 'Ready for Manual Share' }
+              : i
+          )
+        };
+      }
+      if (platformId === 'instagram') {
+        return {
+          ...prev,
+          instagram: prev.instagram.map(i =>
+            i.id === accountId
+              ? { ...i, profileUrl: trimmed, username: extracted || i.username, isExamplePlaceholder: !trimmed, connectionStatus: 'Ready for Manual Share' }
+              : i
+          )
+        };
+      }
+      if (platformId === 'tiktok') {
+        return {
+          ...prev,
+          tiktok: prev.tiktok.map(i =>
+            i.id === accountId
+              ? { ...i, profileUrl: trimmed, username: extracted || i.username, isExamplePlaceholder: !trimmed, connectionStatus: 'Ready for Manual Share' }
+              : i
+          )
+        };
+      }
+      if (platformId === 'youtube') {
+        return {
+          ...prev,
+          youtube: prev.youtube.map(i =>
+            i.id === accountId
+              ? { ...i, channelUrl: trimmed, isExamplePlaceholder: !trimmed, connectionStatus: 'Ready for Manual Share' }
+              : i
+          )
+        };
+      }
+      if (platformId === 'twitter') {
+        return {
+          ...prev,
+          twitter: prev.twitter.map(i =>
+            i.id === accountId
+              ? { ...i, profileUrl: trimmed, username: extracted || i.username, isExamplePlaceholder: !trimmed, connectionStatus: 'Ready for Manual Share' }
+              : i
+          )
+        };
+      }
+      if (platformId === 'threads') {
+        return {
+          ...prev,
+          threads: (prev.threads || []).map(i =>
+            i.id === accountId
+              ? { ...i, profileUrl: trimmed, username: extracted || i.username, isExamplePlaceholder: !trimmed, connectionStatus: 'Ready for Manual Share' }
+              : i
+          )
+        };
+      }
+      return prev;
+    });
   };
 
   const cancelEdit = () => {
@@ -552,7 +1087,7 @@ export const SocialAccountsModal: React.FC<SocialAccountsModalProps> = ({
     formData.tiktok.length +
     formData.youtube.length +
     formData.twitter.length +
-    formData.whatsapp.length;
+    (formData.threads?.length || 0);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
@@ -695,16 +1230,16 @@ export const SocialAccountsModal: React.FC<SocialAccountsModalProps> = ({
           </button>
           <button
             type="button"
-            onClick={() => setActiveTab('whatsapp')}
+            onClick={() => setActiveTab('threads')}
             className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all flex items-center gap-1.5 ${
-              activeTab === 'whatsapp'
-                ? 'bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 shadow-sm'
+              activeTab === 'threads'
+                ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm'
                 : 'text-slate-500 dark:text-slate-400'
             }`}
           >
-            <span>WhatsApp</span>
+            <span>Threads</span>
             <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-200 dark:bg-slate-700">
-              {formData.whatsapp.length}
+              {formData.threads?.length || 0}
             </span>
           </button>
         </div>
@@ -792,25 +1327,49 @@ export const SocialAccountsModal: React.FC<SocialAccountsModalProps> = ({
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                       <div>
                         <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-300 mb-1">
-                          Page Name *
+                          Account / Page Name *
                         </label>
                         <input
                           type="text"
                           value={fbDraft.pageName}
                           onChange={(e) => setFbDraft(prev => ({ ...prev, pageName: e.target.value }))}
-                          placeholder="e.g. Jangari Adventure Official"
+                          placeholder="e.g. Example Facebook Page"
                           className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                         />
                       </div>
                       <div>
                         <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-300 mb-1">
-                          Page URL
+                          Account / Profile / Page URL *
                         </label>
                         <input
                           type="text"
                           value={fbDraft.pageUrl}
                           onChange={(e) => setFbDraft(prev => ({ ...prev, pageUrl: e.target.value }))}
-                          placeholder="https://facebook.com/jangarioutdoor"
+                          placeholder="https://facebook.com/jhon.doe"
+                          className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:placeholder-transparent focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-300 mb-1">
+                          Optional Identifier / Page ID
+                        </label>
+                        <input
+                          type="text"
+                          value={fbDraft.pageId || ''}
+                          onChange={(e) => setFbDraft(prev => ({ ...prev, pageId: e.target.value }))}
+                          placeholder="Optional Page ID or handle"
+                          className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-300 mb-1">
+                          Optional Notes
+                        </label>
+                        <input
+                          type="text"
+                          value={fbDraft.notes || ''}
+                          onChange={(e) => setFbDraft(prev => ({ ...prev, notes: e.target.value }))}
+                          placeholder="Optional notes"
                           className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                         />
                       </div>
@@ -848,11 +1407,25 @@ export const SocialAccountsModal: React.FC<SocialAccountsModalProps> = ({
                         className="p-3 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 rounded-xl flex items-center justify-between gap-2.5 shadow-sm"
                       >
                         <div className="min-w-0 flex-1">
-                          <div className="font-semibold text-xs text-slate-900 dark:text-white truncate">
-                            {item.pageName || 'Unnamed Page'}
+                          <div className="font-semibold text-xs text-slate-900 dark:text-white truncate flex items-center gap-1.5 flex-wrap">
+                            <span>{item.pageName || 'Unnamed Page'}</span>
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+                              READY FOR MANUAL SHARE
+                            </span>
+                            {item.isExamplePlaceholder && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30">
+                                Sample
+                              </span>
+                            )}
                           </div>
-                          <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
-                            {item.pageUrl || 'No page URL set'}
+                          <div className="mt-1.5">
+                            <input
+                              type="text"
+                              value={item.isExamplePlaceholder ? '' : (item.pageUrl || '')}
+                              onChange={(e) => handleDirectCardUrlUpdate('facebook_page', item.id, e.target.value)}
+                              placeholder="https://facebook.com/jhon.doe"
+                              className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder:text-slate-400 focus:placeholder-transparent focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+                            />
                           </div>
                         </div>
 
@@ -871,10 +1444,11 @@ export const SocialAccountsModal: React.FC<SocialAccountsModalProps> = ({
                           <button
                             type="button"
                             onClick={() => startEditFacebook(item)}
-                            className="p-1.5 rounded-lg text-slate-500 hover:text-blue-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                            title="Edit Page"
+                            className="px-2 py-1 rounded-lg text-[11px] font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900/60 transition-colors flex items-center gap-1"
+                            title="Edit Page URL"
                           >
-                            <Edit2 className="w-3.5 h-3.5" />
+                            <Edit2 className="w-3 h-3" />
+                            <span>Edit</span>
                           </button>
                           <button
                             type="button"
@@ -932,25 +1506,49 @@ export const SocialAccountsModal: React.FC<SocialAccountsModalProps> = ({
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div className="space-y-1">
                         <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-400">
-                          Profile Name (or Person's Name) *
+                          Account / Profile Name *
                         </label>
                         <input
                           type="text"
                           value={fbProfDraft.profileName}
                           onChange={(e) => setFbProfDraft(prev => ({ ...prev, profileName: e.target.value }))}
-                          placeholder="e.g. Budi Santoso (Personal)"
+                          placeholder="e.g. Example Facebook Profile"
                           className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                         />
                       </div>
                       <div className="space-y-1">
                         <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-400">
-                          Facebook Profile URL
+                          Account / Profile / Page URL *
                         </label>
                         <input
-                          type="url"
+                          type="text"
                           value={fbProfDraft.profileUrl}
                           onChange={(e) => setFbProfDraft(prev => ({ ...prev, profileUrl: e.target.value }))}
-                          placeholder="https://facebook.com/budi.santoso"
+                          placeholder="https://facebook.com/jhon.doe"
+                          className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:placeholder-transparent focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-400">
+                          Optional Identifier / Profile Handle
+                        </label>
+                        <input
+                          type="text"
+                          value={fbProfDraft.profileId || ''}
+                          onChange={(e) => setFbProfDraft(prev => ({ ...prev, profileId: e.target.value }))}
+                          placeholder="Optional identifier"
+                          className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-400">
+                          Optional Notes
+                        </label>
+                        <input
+                          type="text"
+                          value={fbProfDraft.notes || ''}
+                          onChange={(e) => setFbProfDraft(prev => ({ ...prev, notes: e.target.value }))}
+                          placeholder="Optional notes"
                           className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                         />
                       </div>
@@ -988,14 +1586,28 @@ export const SocialAccountsModal: React.FC<SocialAccountsModalProps> = ({
                         className="p-3 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 rounded-xl flex items-center justify-between gap-2.5 shadow-sm"
                       >
                         <div className="min-w-0 flex-1">
-                          <div className="font-semibold text-xs text-slate-900 dark:text-white truncate flex items-center gap-1.5">
+                          <div className="font-semibold text-xs text-slate-900 dark:text-white truncate flex items-center gap-1.5 flex-wrap">
                             <span>{item.profileName || 'Personal Profile'}</span>
                             <span className="text-[10px] px-1.5 py-0.2 rounded bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-900/40">
                               Personal Profile
                             </span>
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+                              READY FOR MANUAL SHARE
+                            </span>
+                            {item.isExamplePlaceholder && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30">
+                                Sample
+                              </span>
+                            )}
                           </div>
-                          <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
-                            {item.profileUrl || 'No profile URL set'}
+                          <div className="mt-1.5">
+                            <input
+                              type="text"
+                              value={item.isExamplePlaceholder ? '' : (item.profileUrl || '')}
+                              onChange={(e) => handleDirectCardUrlUpdate('facebook_profile', item.id, e.target.value)}
+                              placeholder="https://facebook.com/jhon.doe"
+                              className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder:text-slate-400 focus:placeholder-transparent focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+                            />
                           </div>
                         </div>
 
@@ -1014,10 +1626,11 @@ export const SocialAccountsModal: React.FC<SocialAccountsModalProps> = ({
                           <button
                             type="button"
                             onClick={() => startEditFacebookProfile(item)}
-                            className="p-1.5 rounded-lg text-slate-500 hover:text-blue-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                            title="Edit Profile"
+                            className="px-2 py-1 rounded-lg text-[11px] font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900/60 transition-colors flex items-center gap-1"
+                            title="Edit Profile URL"
                           >
-                            <Edit2 className="w-3.5 h-3.5" />
+                            <Edit2 className="w-3 h-3" />
+                            <span>Edit</span>
                           </button>
                           <button
                             type="button"
@@ -1075,25 +1688,49 @@ export const SocialAccountsModal: React.FC<SocialAccountsModalProps> = ({
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                     <div>
                       <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-300 mb-1">
-                        Username (without @) *
+                        Account Name / Display Name
                       </label>
                       <input
                         type="text"
-                        value={igDraft.username}
-                        onChange={(e) => setIgDraft(prev => ({ ...prev, username: e.target.value }))}
-                        placeholder="e.g. jangari_venture"
+                        value={igDraft.displayName || ''}
+                        onChange={(e) => setIgDraft(prev => ({ ...prev, displayName: e.target.value }))}
+                        placeholder="e.g. Example Instagram"
                         className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-pink-500"
                       />
                     </div>
                     <div>
                       <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-300 mb-1">
-                        Profile URL
+                        Account / Profile / Page URL *
                       </label>
                       <input
                         type="text"
                         value={igDraft.profileUrl}
                         onChange={(e) => setIgDraft(prev => ({ ...prev, profileUrl: e.target.value }))}
-                        placeholder="https://instagram.com/jangari_venture"
+                        placeholder="https://instagram.com/jhon.doe"
+                        className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:placeholder-transparent focus:outline-none focus:ring-2 focus:ring-pink-500 font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-300 mb-1">
+                        Optional Identifier / Username (without @)
+                      </label>
+                      <input
+                        type="text"
+                        value={igDraft.username}
+                        onChange={(e) => setIgDraft(prev => ({ ...prev, username: e.target.value }))}
+                        placeholder="e.g. your-account"
+                        className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-pink-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-300 mb-1">
+                        Optional Notes
+                      </label>
+                      <input
+                        type="text"
+                        value={igDraft.notes || ''}
+                        onChange={(e) => setIgDraft(prev => ({ ...prev, notes: e.target.value }))}
+                        placeholder="Optional notes"
                         className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-pink-500"
                       />
                     </div>
@@ -1131,11 +1768,25 @@ export const SocialAccountsModal: React.FC<SocialAccountsModalProps> = ({
                       className="p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-xl flex items-center justify-between gap-2.5 shadow-sm"
                     >
                       <div className="min-w-0 flex-1">
-                        <div className="font-semibold text-xs text-slate-900 dark:text-white truncate">
-                          @{item.username.replace(/^@/, '') || 'Unnamed Account'}
+                        <div className="font-semibold text-xs text-slate-900 dark:text-white truncate flex items-center gap-1.5 flex-wrap">
+                          <span>{item.displayName ? `${item.displayName}${item.username ? ` (@${item.username.replace(/^@/, '')})` : ''}` : (item.username ? `@${item.username.replace(/^@/, '')}` : 'Example Instagram Account')}</span>
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+                            READY FOR MANUAL SHARE
+                          </span>
+                          {item.isExamplePlaceholder && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30">
+                              Sample
+                            </span>
+                          )}
                         </div>
-                        <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
-                          {item.profileUrl || `https://instagram.com/${item.username}`}
+                        <div className="mt-1.5">
+                          <input
+                            type="text"
+                            value={item.isExamplePlaceholder ? '' : (item.profileUrl || '')}
+                            onChange={(e) => handleDirectCardUrlUpdate('instagram', item.id, e.target.value)}
+                            placeholder="https://instagram.com/jhon.doe"
+                            className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-slate-400 focus:placeholder-transparent focus:outline-none focus:ring-2 focus:ring-pink-500 font-mono"
+                          />
                         </div>
                       </div>
 
@@ -1154,10 +1805,11 @@ export const SocialAccountsModal: React.FC<SocialAccountsModalProps> = ({
                         <button
                           type="button"
                           onClick={() => startEditInstagram(item)}
-                          className="p-1.5 rounded-lg text-slate-500 hover:text-pink-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                          title="Edit Account"
+                          className="px-2 py-1 rounded-lg text-[11px] font-semibold text-pink-600 dark:text-pink-400 bg-pink-50 dark:bg-pink-950/40 hover:bg-pink-100 dark:hover:bg-pink-900/60 transition-colors flex items-center gap-1"
+                          title="Edit Account URL"
                         >
-                          <Edit2 className="w-3.5 h-3.5" />
+                          <Edit2 className="w-3 h-3" />
+                          <span>Edit</span>
                         </button>
                         <button
                           type="button"
@@ -1214,25 +1866,49 @@ export const SocialAccountsModal: React.FC<SocialAccountsModalProps> = ({
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                     <div>
                       <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-300 mb-1">
-                        Username (without @) *
+                        Account Name / Display Name
                       </label>
                       <input
                         type="text"
-                        value={ttDraft.username}
-                        onChange={(e) => setTtDraft(prev => ({ ...prev, username: e.target.value }))}
-                        placeholder="e.g. jangari_official"
+                        value={ttDraft.displayName || ''}
+                        onChange={(e) => setTtDraft(prev => ({ ...prev, displayName: e.target.value }))}
+                        placeholder="e.g. Example TikTok"
                         className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-slate-500"
                       />
                     </div>
                     <div>
                       <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-300 mb-1">
-                        Profile URL
+                        Account / Profile / Page URL *
                       </label>
                       <input
                         type="text"
                         value={ttDraft.profileUrl}
                         onChange={(e) => setTtDraft(prev => ({ ...prev, profileUrl: e.target.value }))}
-                        placeholder="https://tiktok.com/@jangari_official"
+                        placeholder="https://tiktok.com/@jhon.doe"
+                        className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:placeholder-transparent focus:outline-none focus:ring-2 focus:ring-slate-500 font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-300 mb-1">
+                        Optional Identifier / Username (without @)
+                      </label>
+                      <input
+                        type="text"
+                        value={ttDraft.username}
+                        onChange={(e) => setTtDraft(prev => ({ ...prev, username: e.target.value }))}
+                        placeholder="e.g. your-account"
+                        className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-slate-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-300 mb-1">
+                        Optional Notes
+                      </label>
+                      <input
+                        type="text"
+                        value={ttDraft.notes || ''}
+                        onChange={(e) => setTtDraft(prev => ({ ...prev, notes: e.target.value }))}
+                        placeholder="Optional notes"
                         className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-slate-500"
                       />
                     </div>
@@ -1270,11 +1946,25 @@ export const SocialAccountsModal: React.FC<SocialAccountsModalProps> = ({
                       className="p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-xl flex items-center justify-between gap-2.5 shadow-sm"
                     >
                       <div className="min-w-0 flex-1">
-                        <div className="font-semibold text-xs text-slate-900 dark:text-white truncate">
-                          @{item.username.replace(/^@/, '') || 'Unnamed Account'}
+                        <div className="font-semibold text-xs text-slate-900 dark:text-white truncate flex items-center gap-1.5 flex-wrap">
+                          <span>{item.displayName ? `${item.displayName}${item.username ? ` (@${item.username.replace(/^@/, '')})` : ''}` : (item.username ? `@${item.username.replace(/^@/, '')}` : 'Example TikTok Account')}</span>
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+                            READY FOR MANUAL SHARE
+                          </span>
+                          {item.isExamplePlaceholder && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30">
+                              Sample
+                            </span>
+                          )}
                         </div>
-                        <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
-                          {item.profileUrl || `https://tiktok.com/@${item.username}`}
+                        <div className="mt-1.5">
+                          <input
+                            type="text"
+                            value={item.isExamplePlaceholder ? '' : (item.profileUrl || '')}
+                            onChange={(e) => handleDirectCardUrlUpdate('tiktok', item.id, e.target.value)}
+                            placeholder="https://tiktok.com/@jhon.doe"
+                            className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-slate-400 focus:placeholder-transparent focus:outline-none focus:ring-2 focus:ring-slate-500 font-mono"
+                          />
                         </div>
                       </div>
 
@@ -1293,10 +1983,11 @@ export const SocialAccountsModal: React.FC<SocialAccountsModalProps> = ({
                         <button
                           type="button"
                           onClick={() => startEditTikTok(item)}
-                          className="p-1.5 rounded-lg text-slate-500 hover:text-slate-800 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                          title="Edit Account"
+                          className="px-2 py-1 rounded-lg text-[11px] font-semibold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors flex items-center gap-1"
+                          title="Edit Account URL"
                         >
-                          <Edit2 className="w-3.5 h-3.5" />
+                          <Edit2 className="w-3 h-3" />
+                          <span>Edit</span>
                         </button>
                         <button
                           type="button"
@@ -1353,25 +2044,49 @@ export const SocialAccountsModal: React.FC<SocialAccountsModalProps> = ({
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                     <div>
                       <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-300 mb-1">
-                        Channel Name *
+                        Account / Channel Name *
                       </label>
                       <input
                         type="text"
                         value={ytDraft.channelName}
                         onChange={(e) => setYtDraft(prev => ({ ...prev, channelName: e.target.value }))}
-                        placeholder="e.g. Jangari Fishing TV"
+                        placeholder="e.g. Example YouTube Channel"
                         className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-red-500"
                       />
                     </div>
                     <div>
                       <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-300 mb-1">
-                        Channel URL
+                        Account / Profile / Page URL *
                       </label>
                       <input
                         type="text"
                         value={ytDraft.channelUrl}
                         onChange={(e) => setYtDraft(prev => ({ ...prev, channelUrl: e.target.value }))}
-                        placeholder="https://youtube.com/@jangarifishing"
+                        placeholder="https://youtube.com/@jhon.doe"
+                        className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:placeholder-transparent focus:outline-none focus:ring-2 focus:ring-red-500 font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-300 mb-1">
+                        Optional Identifier / Channel Handle
+                      </label>
+                      <input
+                        type="text"
+                        value={ytDraft.channelId || ''}
+                        onChange={(e) => setYtDraft(prev => ({ ...prev, channelId: e.target.value }))}
+                        placeholder="e.g. @your-channel"
+                        className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-red-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-300 mb-1">
+                        Optional Notes
+                      </label>
+                      <input
+                        type="text"
+                        value={ytDraft.notes || ''}
+                        onChange={(e) => setYtDraft(prev => ({ ...prev, notes: e.target.value }))}
+                        placeholder="Optional notes"
                         className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-red-500"
                       />
                     </div>
@@ -1409,11 +2124,25 @@ export const SocialAccountsModal: React.FC<SocialAccountsModalProps> = ({
                       className="p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-xl flex items-center justify-between gap-2.5 shadow-sm"
                     >
                       <div className="min-w-0 flex-1">
-                        <div className="font-semibold text-xs text-slate-900 dark:text-white truncate">
-                          {item.channelName || 'YouTube Channel'}
+                        <div className="font-semibold text-xs text-slate-900 dark:text-white truncate flex items-center gap-1.5 flex-wrap">
+                          <span>{item.channelName || 'YouTube Channel'}</span>
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+                            READY FOR MANUAL SHARE
+                          </span>
+                          {item.isExamplePlaceholder && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30">
+                              Sample
+                            </span>
+                          )}
                         </div>
-                        <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
-                          {item.channelUrl || 'No channel URL set'}
+                        <div className="mt-1.5">
+                          <input
+                            type="text"
+                            value={item.isExamplePlaceholder ? '' : (item.channelUrl || '')}
+                            onChange={(e) => handleDirectCardUrlUpdate('youtube', item.id, e.target.value)}
+                            placeholder="https://youtube.com/@jhon.doe"
+                            className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-slate-400 focus:placeholder-transparent focus:outline-none focus:ring-2 focus:ring-red-500 font-mono"
+                          />
                         </div>
                       </div>
 
@@ -1432,10 +2161,11 @@ export const SocialAccountsModal: React.FC<SocialAccountsModalProps> = ({
                         <button
                           type="button"
                           onClick={() => startEditYouTube(item)}
-                          className="p-1.5 rounded-lg text-slate-500 hover:text-red-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                          title="Edit Channel"
+                          className="px-2 py-1 rounded-lg text-[11px] font-semibold text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/40 hover:bg-red-100 dark:hover:bg-red-900/60 transition-colors flex items-center gap-1"
+                          title="Edit Channel URL"
                         >
-                          <Edit2 className="w-3.5 h-3.5" />
+                          <Edit2 className="w-3 h-3" />
+                          <span>Edit</span>
                         </button>
                         <button
                           type="button"
@@ -1492,26 +2222,50 @@ export const SocialAccountsModal: React.FC<SocialAccountsModalProps> = ({
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                     <div>
                       <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-300 mb-1">
-                        Username (without @) *
+                        Account Name / Display Name
                       </label>
                       <input
                         type="text"
-                        value={twDraft.username}
-                        onChange={(e) => setTwDraft(prev => ({ ...prev, username: e.target.value }))}
-                        placeholder="e.g. jangariview"
+                        value={twDraft.displayName || ''}
+                        onChange={(e) => setTwDraft(prev => ({ ...prev, displayName: e.target.value }))}
+                        placeholder="e.g. Example X Account"
                         className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-slate-500"
                       />
                     </div>
                     <div>
                       <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-300 mb-1">
-                        Profile URL
+                        Account / Profile / Page URL *
                       </label>
                       <input
                         type="text"
                         value={twDraft.profileUrl}
                         onChange={(e) => setTwDraft(prev => ({ ...prev, profileUrl: e.target.value }))}
-                        placeholder="https://x.com/jangariview"
-                        className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-slate-500"
+                        placeholder="https://x.com/jhon.doe"
+                        className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:placeholder-transparent focus:outline-none focus:ring-2 focus:ring-slate-500 font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-300 mb-1">
+                        Optional Identifier / Username (without @)
+                      </label>
+                      <input
+                        type="text"
+                        value={twDraft.username}
+                        onChange={(e) => setTwDraft(prev => ({ ...prev, username: e.target.value }))}
+                        placeholder="e.g. jhon.doe"
+                        className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:placeholder-transparent focus:outline-none focus:ring-2 focus:ring-slate-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-300 mb-1">
+                        Optional Notes
+                      </label>
+                      <input
+                        type="text"
+                        value={twDraft.notes || ''}
+                        onChange={(e) => setTwDraft(prev => ({ ...prev, notes: e.target.value }))}
+                        placeholder="Optional notes"
+                        className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:placeholder-transparent focus:outline-none focus:ring-2 focus:ring-slate-500"
                       />
                     </div>
                   </div>
@@ -1548,19 +2302,33 @@ export const SocialAccountsModal: React.FC<SocialAccountsModalProps> = ({
                       className="p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-xl flex items-center justify-between gap-2.5 shadow-sm"
                     >
                       <div className="min-w-0 flex-1">
-                        <div className="font-semibold text-xs text-slate-900 dark:text-white truncate">
-                          @{item.username.replace(/^@/, '') || 'Unnamed Account'}
+                        <div className="font-semibold text-xs text-slate-900 dark:text-white truncate flex items-center gap-1.5 flex-wrap">
+                          <span>{item.displayName ? `${item.displayName}${item.username ? ` (@${item.username.replace(/^@/, '')})` : ''}` : (item.username ? `@${item.username.replace(/^@/, '')}` : 'Example X Account')}</span>
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+                            READY FOR MANUAL SHARE
+                          </span>
+                          {item.isExamplePlaceholder && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30">
+                              Sample
+                            </span>
+                          )}
                         </div>
-                        <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
-                          {item.profileUrl || `https://x.com/${item.username}`}
+                        <div className="mt-1.5">
+                          <input
+                            type="text"
+                            value={item.isExamplePlaceholder ? '' : (item.profileUrl || '')}
+                            onChange={(e) => handleDirectCardUrlUpdate('twitter', item.id, e.target.value)}
+                            placeholder="https://x.com/jhon.doe"
+                            className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-slate-400 focus:placeholder-transparent focus:outline-none focus:ring-2 focus:ring-slate-500 font-mono"
+                          />
                         </div>
                       </div>
 
                       <div className="flex items-center gap-1.5 shrink-0">
-                        {(item.profileUrl || item.username) && (
+                        {item.profileUrl && !item.isExamplePlaceholder && (
                           <button
                             type="button"
-                            onClick={() => openTestLink(item.profileUrl || `https://x.com/${item.username}`)}
+                            onClick={() => openTestLink(item.profileUrl)}
                             className="px-2.5 py-1 rounded-lg text-[11px] font-medium border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-1"
                             title="Test Link"
                           >
@@ -1571,10 +2339,11 @@ export const SocialAccountsModal: React.FC<SocialAccountsModalProps> = ({
                         <button
                           type="button"
                           onClick={() => startEditTwitter(item)}
-                          className="p-1.5 rounded-lg text-slate-500 hover:text-slate-800 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                          title="Edit Account"
+                          className="px-2 py-1 rounded-lg text-[11px] font-semibold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors flex items-center gap-1"
+                          title="Edit Account Details"
                         >
-                          <Edit2 className="w-3.5 h-3.5" />
+                          <Edit2 className="w-3 h-3" />
+                          <span>Edit</span>
                         </button>
                         <button
                           type="button"
@@ -1592,77 +2361,89 @@ export const SocialAccountsModal: React.FC<SocialAccountsModalProps> = ({
             </div>
           )}
 
-          {/* 6. WHATSAPP SECTION */}
-          {(activeTab === 'all' || activeTab === 'whatsapp') && (
+          {/* 6. THREADS SECTION */}
+          {(activeTab === 'all' || activeTab === 'threads') && (
             <div className="bg-slate-50/70 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 space-y-3">
               <div className="flex items-center justify-between flex-wrap gap-2">
                 <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-xl bg-emerald-500 text-white flex items-center justify-center font-bold text-xs shadow-sm">
-                    WA
+                  <div className="w-8 h-8 rounded-xl bg-neutral-900 dark:bg-neutral-800 border border-neutral-700 text-white flex items-center justify-center font-bold text-xs shadow-sm">
+                    @
                   </div>
                   <div>
                     <h3 className="text-sm font-bold text-slate-900 dark:text-white">
-                      WhatsApp Accounts & Numbers
+                      Threads Accounts
                     </h3>
                     <span className="text-[11px] text-slate-500 dark:text-slate-400">
-                      {formData.whatsapp.length} Account{formData.whatsapp.length === 1 ? '' : 's'} configured
+                      {formData.threads?.length || 0} Account{(formData.threads?.length || 0) === 1 ? '' : 's'} configured
                     </span>
                   </div>
                 </div>
 
                 <button
-                  id="btn-add-whatsapp-account"
+                  id="btn-add-threads-account"
                   type="button"
-                  onClick={startAddWhatsApp}
-                  className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm transition-all flex items-center gap-1"
+                  onClick={startAddThreads}
+                  className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-neutral-900 dark:bg-neutral-700 hover:bg-neutral-800 text-white shadow-sm transition-all flex items-center gap-1"
                 >
                   <Plus className="w-3.5 h-3.5" />
-                  <span>+ Add WhatsApp Account</span>
+                  <span>+ Add Threads Account</span>
                 </button>
               </div>
 
-              {/* Add/Edit Form for WhatsApp */}
-              {(addingForPlatform === 'whatsapp' || (editingAccountId && formData.whatsapp.some(i => i.id === editingAccountId))) && (
-                <div className="p-3.5 rounded-xl bg-white dark:bg-slate-900 border border-emerald-500/40 shadow-sm space-y-3 animate-fadeIn">
+              {/* Add/Edit Form for Threads */}
+              {(addingForPlatform === 'threads' || (editingAccountId && (formData.threads || []).some(i => i.id === editingAccountId))) && (
+                <div className="p-3.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-500/40 shadow-sm space-y-3 animate-fadeIn">
                   <div className="text-xs font-bold text-slate-900 dark:text-white flex items-center justify-between">
-                    <span>{editingAccountId ? 'Edit WhatsApp Account' : 'Add New WhatsApp Account'}</span>
+                    <span>{editingAccountId ? 'Edit Threads Account' : 'Add New Threads Account'}</span>
                     <button onClick={cancelEdit} className="text-slate-400 hover:text-slate-600 text-[11px]">Cancel</button>
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                     <div>
                       <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-300 mb-1">
-                        Account / Contact Name *
+                        Account Name / Display Name
                       </label>
                       <input
                         type="text"
-                        value={waDraft.name}
-                        onChange={(e) => setWaDraft(prev => ({ ...prev, name: e.target.value }))}
-                        placeholder="e.g. CS Pemancingan Jangari"
-                        className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        value={thDraft.displayName}
+                        onChange={(e) => setThDraft(prev => ({ ...prev, displayName: e.target.value }))}
+                        placeholder="e.g. Example Threads Account"
+                        className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:placeholder-transparent focus:outline-none focus:ring-2 focus:ring-slate-500"
                       />
                     </div>
                     <div>
                       <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-300 mb-1">
-                        WhatsApp Number *
+                        Account / Profile / Page URL *
                       </label>
                       <input
-                        type="tel"
-                        value={waDraft.phoneNumber}
-                        onChange={(e) => setWaDraft(prev => ({ ...prev, phoneNumber: e.target.value }))}
-                        placeholder="e.g. +6281234567890"
-                        className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        type="text"
+                        value={thDraft.profileUrl}
+                        onChange={(e) => setThDraft(prev => ({ ...prev, profileUrl: e.target.value }))}
+                        placeholder="https://threads.com/@jhon.doe"
+                        className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:placeholder-transparent focus:outline-none focus:ring-2 focus:ring-slate-500 font-mono"
                       />
                     </div>
                     <div>
                       <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-300 mb-1">
-                        Optional WhatsApp Link
+                        Optional Identifier / Username (without @)
                       </label>
                       <input
                         type="text"
-                        value={waDraft.waLink}
-                        onChange={(e) => setWaDraft(prev => ({ ...prev, waLink: e.target.value }))}
-                        placeholder="https://wa.me/6281234567890"
-                        className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        value={thDraft.username}
+                        onChange={(e) => setThDraft(prev => ({ ...prev, username: e.target.value }))}
+                        placeholder="e.g. jhon.doe"
+                        className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:placeholder-transparent focus:outline-none focus:ring-2 focus:ring-slate-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-300 mb-1">
+                        Optional Notes
+                      </label>
+                      <input
+                        type="text"
+                        value={thDraft.notes || ''}
+                        onChange={(e) => setThDraft(prev => ({ ...prev, notes: e.target.value }))}
+                        placeholder="Optional notes"
+                        className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:placeholder-transparent focus:outline-none focus:ring-2 focus:ring-slate-500"
                       />
                     </div>
                   </div>
@@ -1676,8 +2457,8 @@ export const SocialAccountsModal: React.FC<SocialAccountsModalProps> = ({
                     </button>
                     <button
                       type="button"
-                      onClick={saveWhatsAppItem}
-                      className="px-4 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white flex items-center gap-1"
+                      onClick={saveThreadsItem}
+                      className="px-4 py-1.5 rounded-lg text-xs font-semibold bg-neutral-900 dark:bg-neutral-700 hover:bg-neutral-800 text-white flex items-center gap-1"
                     >
                       <Check className="w-3.5 h-3.5" />
                       <span>{editingAccountId ? 'Update Account' : 'Save Account'}</span>
@@ -1686,36 +2467,49 @@ export const SocialAccountsModal: React.FC<SocialAccountsModalProps> = ({
                 </div>
               )}
 
-              {/* List of WhatsApp Accounts */}
-              {formData.whatsapp.length === 0 ? (
+              {/* List of Threads Accounts */}
+              {(!formData.threads || formData.threads.length === 0) ? (
                 <div className="text-center py-4 px-2 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-400">
-                  No WhatsApp accounts added yet. Tap "+ Add WhatsApp Account" to configure.
+                  No Threads accounts added yet. Tap "+ Add Threads Account" to configure.
                 </div>
               ) : (
                 <div className="space-y-2">
-                  {formData.whatsapp.map((item) => {
-                    const cleanPhone = item.phoneNumber?.replace(/[^0-9]/g, '');
-                    const testLink = item.waLink || (cleanPhone ? `https://wa.me/${cleanPhone}` : null);
+                  {formData.threads.map((item) => {
+                    const testLink = item.profileUrl || (item.username ? `https://www.threads.com/@${item.username.replace(/^@/, '')}` : null);
                     return (
                       <div
                         key={item.id}
                         className="p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-xl flex items-center justify-between gap-2.5 shadow-sm"
                       >
                         <div className="min-w-0 flex-1">
-                          <div className="font-semibold text-xs text-slate-900 dark:text-white truncate">
-                            {item.name || item.phoneNumber || 'WhatsApp Account'}
+                          <div className="font-semibold text-xs text-slate-900 dark:text-white truncate flex items-center gap-1.5 flex-wrap">
+                            <span>{item.displayName ? `${item.displayName}${item.username ? ` (@${item.username.replace(/^@/, '')})` : ''}` : (item.username ? `@${item.username.replace(/^@/, '')}` : 'Example Threads Account')}</span>
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+                              READY FOR MANUAL SHARE
+                            </span>
+                            {item.isExamplePlaceholder && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30">
+                                Sample
+                              </span>
+                            )}
                           </div>
-                          <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
-                            {item.phoneNumber ? `${item.phoneNumber}` : ''} {item.waLink ? `• ${item.waLink}` : ''}
+                          <div className="mt-1.5">
+                            <input
+                              type="text"
+                              value={item.isExamplePlaceholder ? '' : (item.profileUrl || '')}
+                              onChange={(e) => handleDirectCardUrlUpdate('threads', item.id, e.target.value)}
+                              placeholder="https://threads.com/@jhon.doe"
+                              className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-slate-400 focus:placeholder-transparent focus:outline-none focus:ring-2 focus:ring-slate-500 font-mono"
+                            />
                           </div>
                         </div>
 
                         <div className="flex items-center gap-1.5 shrink-0">
-                          {testLink && (
+                          {testLink && !item.isExamplePlaceholder && (
                             <button
                               type="button"
                               onClick={() => openTestLink(testLink)}
-                              className="px-2.5 py-1 rounded-lg text-[11px] font-medium border border-emerald-200 dark:border-emerald-900/50 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 flex items-center gap-1"
+                              className="px-2.5 py-1 rounded-lg text-[11px] font-medium border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-1"
                               title="Test Link"
                             >
                               <span>Test Link</span>
@@ -1724,15 +2518,16 @@ export const SocialAccountsModal: React.FC<SocialAccountsModalProps> = ({
                           )}
                           <button
                             type="button"
-                            onClick={() => startEditWhatsApp(item)}
-                            className="p-1.5 rounded-lg text-slate-500 hover:text-emerald-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                            title="Edit Account"
+                            onClick={() => startEditThreads(item)}
+                            className="px-2 py-1 rounded-lg text-[11px] font-semibold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors flex items-center gap-1"
+                            title="Edit Account Details"
                           >
-                            <Edit2 className="w-3.5 h-3.5" />
+                            <Edit2 className="w-3 h-3" />
+                            <span>Edit</span>
                           </button>
                           <button
                             type="button"
-                            onClick={() => deleteWhatsAppItem(item.id)}
+                            onClick={() => deleteThreadsItem(item.id)}
                             className="p-1.5 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors"
                             title="Delete Account"
                           >

@@ -199,7 +199,7 @@ export const PLAN_FEATURES_LIST: PlanFeatureDefinition[] = [
   {
     key: 'social_accounts',
     name: 'Social Media Accounts',
-    description: 'Add multiple accounts per platform (FB Pages, Profiles, IG, TikTok, YouTube, X, WhatsApp)',
+    description: 'Add multiple accounts per platform (FB Pages, Profiles, IG, TikTok, YouTube, X, Threads)',
     freeLimitDescription: 'Up to 3 accounts per platform',
     proLimitDescription: 'Unlimited accounts',
     proOnly: false

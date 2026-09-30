@@ -23,6 +23,10 @@ import {
 import { STORAGE_KEYS, sanitizeSensitiveData } from '../utils/backupEngine';
 import { ensureAppSettings } from '../utils/appSettingsDefaults';
 import {
+  migrateLegacyDeveloperAccounts,
+  migrateLegacyDeveloperGroups
+} from '../utils/socialAccounts';
+import {
   loadAutoHuntSettings,
   loadNewsSettings,
   loadNewsSources,
@@ -128,13 +132,45 @@ class LocalDataRepositoryAdapter implements DataRepositoryAdapter {
   getSocialAccounts(): UserSocialAccounts {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.ACCOUNTS);
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        const { accounts, migratedLegacyCount } = migrateLegacyDeveloperAccounts(parsed);
+        const totalCount =
+          (accounts.facebook_page?.length || 0) +
+          (accounts.facebook_profile?.length || 0) +
+          (accounts.instagram?.length || 0) +
+          (accounts.tiktok?.length || 0) +
+          (accounts.youtube?.length || 0) +
+          (accounts.twitter?.length || 0) +
+          (accounts.threads?.length || 0);
+        if (totalCount === 0 && localStorage.getItem('sss_accounts_explicitly_cleared_v1') !== 'true') {
+          this.saveSocialAccounts(DEFAULT_USER_ACCOUNTS);
+          return DEFAULT_USER_ACCOUNTS;
+        }
+        if (migratedLegacyCount > 0) {
+          this.saveSocialAccounts(accounts);
+        }
+        return accounts;
+      }
     } catch {}
     return DEFAULT_USER_ACCOUNTS;
   }
 
   saveSocialAccounts(accounts: UserSocialAccounts): void {
     try {
+      const totalCount =
+        (accounts.facebook_page?.length || 0) +
+        (accounts.facebook_profile?.length || 0) +
+        (accounts.instagram?.length || 0) +
+        (accounts.tiktok?.length || 0) +
+        (accounts.youtube?.length || 0) +
+        (accounts.twitter?.length || 0) +
+        (accounts.threads?.length || 0);
+      if (totalCount === 0) {
+        localStorage.setItem('sss_accounts_explicitly_cleared_v1', 'true');
+      } else {
+        localStorage.removeItem('sss_accounts_explicitly_cleared_v1');
+      }
       localStorage.setItem(STORAGE_KEYS.ACCOUNTS, JSON.stringify(accounts));
       this.recordLocalWrite();
     } catch (err) {
@@ -145,7 +181,14 @@ class LocalDataRepositoryAdapter implements DataRepositoryAdapter {
   getPostingGroups(): SocialGroup[] {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.GROUPS);
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        const { groups, migratedLegacyCount } = migrateLegacyDeveloperGroups(parsed);
+        if (migratedLegacyCount > 0) {
+          this.savePostingGroups(groups);
+        }
+        return groups;
+      }
     } catch {}
     return DEFAULT_SOCIAL_GROUPS;
   }

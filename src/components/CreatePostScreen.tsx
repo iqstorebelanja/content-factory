@@ -50,13 +50,15 @@ const DESTINATION_PLATFORMS_CONFIG: { id: PlatformId; label: string }[] = [
   { id: 'tiktok', label: 'TikTok' },
   { id: 'youtube', label: 'YouTube' },
   { id: 'twitter', label: 'X' },
-  { id: 'whatsapp', label: 'WhatsApp' }
+  { id: 'threads', label: 'Threads' }
 ];
 
 interface CreatePostScreenProps {
   initialPost?: SocialPost | null;
   onShareNow: (post: SocialPost) => void;
-  onSaveDraft: (post: SocialPost) => void;
+  onSaveDraft?: (post: SocialPost) => void;
+  onCreateGroup?: (group: Omit<SocialGroup, 'id' | 'createdAt'>) => SocialGroup | void;
+  onManageAccounts?: () => void;
   onOpenDriveModal: () => void;
   isDriveConnected: boolean;
   isExpoGoMode: boolean;
@@ -68,7 +70,8 @@ interface CreatePostScreenProps {
 export const CreatePostScreen: React.FC<CreatePostScreenProps> = ({
   initialPost,
   onShareNow,
-  onSaveDraft,
+  onCreateGroup,
+  onManageAccounts,
   onOpenDriveModal,
   isDriveConnected,
   isExpoGoMode,
@@ -95,7 +98,7 @@ export const CreatePostScreen: React.FC<CreatePostScreenProps> = ({
   const [title, setTitle] = useState(initialPost?.title || '');
   const [caption, setCaption] = useState(initialPost?.caption || '');
   const [description, setDescription] = useState(initialPost?.description || '');
-  const [hashtags, setHashtags] = useState<string[]>(initialPost?.hashtags || ['#Jangari', '#Mancing', '#WisataJawaBarat', '#Fishing', '#NgabloeVenture']);
+  const [hashtags, setHashtags] = useState<string[]>(initialPost?.hashtags || ['#SocialMedia', '#ContentCreator', '#DigitalMarketing', '#BrandUpdate', '#Highlights']);
   const [hashtagInput, setHashtagInput] = useState('');
   
   // Destination Accounts selection state
@@ -116,7 +119,7 @@ export const CreatePostScreen: React.FC<CreatePostScreenProps> = ({
     if (allDestinations.length > 0) {
       return Array.from(new Set(allDestinations.map(d => d.platformId)));
     }
-    return ['facebook_page', 'facebook_profile', 'instagram', 'tiktok', 'youtube', 'twitter', 'whatsapp'];
+    return ['facebook_page', 'facebook_profile', 'instagram', 'tiktok', 'youtube', 'twitter', 'threads'];
   });
 
   // Media state: do not automatically download or force sample preset if coming from news without media
@@ -201,7 +204,12 @@ export const CreatePostScreen: React.FC<CreatePostScreenProps> = ({
   const [isGeneratingAi, setIsGeneratingAi] = useState(false);
   const [aiPromptTopic, setAiPromptTopic] = useState('');
   const [showAiModal, setShowAiModal] = useState(false);
-  const [draftSavedToast, setDraftSavedToast] = useState(false);
+
+  // Custom Posting Group Creator Form State
+  const [isCreatingCustomGroup, setIsCreatingCustomGroup] = useState(false);
+  const [customGroupName, setCustomGroupName] = useState('');
+  const [customGroupAccountIds, setCustomGroupAccountIds] = useState<string[]>([]);
+  const [customGroupError, setCustomGroupError] = useState<string | null>(null);
 
   // Validation Warnings
   const [validationWarning, setValidationWarning] = useState<string | null>(null);
@@ -226,6 +234,15 @@ export const CreatePostScreen: React.FC<CreatePostScreenProps> = ({
 
   // Handle Posting Group selection
   const handleSelectGroup = (groupId: string | null) => {
+    if (groupId === '__create_custom_group__') {
+      setIsCreatingCustomGroup(true);
+      setCustomGroupName('');
+      setCustomGroupAccountIds(selectedDestinationIds.length > 0 ? [...selectedDestinationIds] : allDestinations.map(d => d.id));
+      setCustomGroupError(null);
+      return;
+    }
+
+    setIsCreatingCustomGroup(false);
     setSelectedGroupId(groupId);
     if (!groupId) {
       // User chose "No Group" -> preserves existing selection for manual refinement
@@ -233,9 +250,10 @@ export const CreatePostScreen: React.FC<CreatePostScreenProps> = ({
     }
 
     const group = (socialGroups || []).find(g => g.id === groupId);
-    if (group && group.destinationIds) {
+    if (group) {
+      const groupDestIds = group.destinationIds || group.accountIds || [];
       // Automatically select all active valid destinations belonging to that group
-      const validDestinationIds = group.destinationIds.filter(id =>
+      const validDestinationIds = groupDestIds.filter(id =>
         allDestinations.some(d => d.id === id)
       );
       setSelectedDestinationIds(validDestinationIds);
@@ -250,6 +268,43 @@ export const CreatePostScreen: React.FC<CreatePostScreenProps> = ({
         setSelectedPlatforms(Array.from(activePlatforms));
       }
     }
+  };
+
+  const handleSaveCustomGroup = () => {
+    const trimmedName = customGroupName.trim();
+    if (!trimmedName) {
+      setCustomGroupError('Please enter a Group Name.');
+      return;
+    }
+    if (customGroupAccountIds.length === 0) {
+      setCustomGroupError('Please select at least one social account for this group.');
+      return;
+    }
+
+    const platformsSet = new Set<PlatformId>();
+    customGroupAccountIds.forEach(id => {
+      const dest = allDestinations.find(d => d.id === id);
+      if (dest) platformsSet.add(dest.platformId);
+    });
+    const platformsList = Array.from(platformsSet);
+
+    if (onCreateGroup) {
+      const created = onCreateGroup({
+        name: trimmedName,
+        platforms: platformsList,
+        accountIds: customGroupAccountIds,
+        destinationIds: customGroupAccountIds
+      });
+      if (created && typeof created === 'object' && 'id' in created) {
+        setSelectedGroupId(created.id);
+      }
+    }
+
+    setSelectedDestinationIds(customGroupAccountIds);
+    setSelectedPlatforms(platformsList);
+    setIsCreatingCustomGroup(false);
+    setCustomGroupName('');
+    setCustomGroupError(null);
   };
 
   // Sync initialGroupId if passed directly and no initialPost
@@ -381,10 +436,10 @@ export const CreatePostScreen: React.FC<CreatePostScreenProps> = ({
     setValidationWarning(null);
     try {
       const resJson = await apiService.generateAI({
-        topic: aiPromptTopic || title || 'Trip mancing Waduk Jangari dan wisata seru Jawa Barat',
+        topic: aiPromptTopic || title || 'Weekly brand and community highlight update',
         mediaType: media?.type,
         mediaName: media?.name,
-        platforms: selectedPlatforms.length > 0 ? selectedPlatforms : ['facebook_page', 'instagram', 'tiktok', 'youtube', 'twitter', 'whatsapp']
+        platforms: selectedPlatforms.length > 0 ? selectedPlatforms : ['facebook_page', 'instagram', 'tiktok', 'youtube', 'twitter', 'threads']
       });
 
       if (resJson.success && resJson.data) {
@@ -397,7 +452,7 @@ export const CreatePostScreen: React.FC<CreatePostScreenProps> = ({
         if (pData.youtube?.title) setTitle(pData.youtube.title);
         else if (aiPromptTopic) setTitle(aiPromptTopic);
 
-        const primaryCaption = pData.facebook_page?.caption || pData.instagram?.caption || pData.tiktok?.caption || pData.twitter?.caption || pData.whatsapp?.caption;
+        const primaryCaption = pData.facebook_page?.caption || pData.instagram?.caption || pData.tiktok?.caption || pData.twitter?.caption || pData.threads?.caption;
         if (primaryCaption) setCaption(primaryCaption);
 
         if (pData.youtube?.description) setDescription(pData.youtube.description);
@@ -413,11 +468,12 @@ export const CreatePostScreen: React.FC<CreatePostScreenProps> = ({
       }
     } catch (err: any) {
       console.warn('AI generation fallback to offline prompt sample:', err);
-      // Fallback content directly matching prompt example (without charging AI quota)
-      setTitle('Jangari, Surga Pemancing di Jawa Barat');
-      setCaption('Jangari bukan cuma tempat mancing, tapi juga menawarkan panorama dan suasana yang menarik untuk dijelajahi.');
-      setDescription('Pemandangan danau air tenang dan keramba terapung yang luas di Jangari Cianjur Jawa Barat.');
-      setHashtags(['#Jangari', '#Mancing', '#WisataJawaBarat', '#Fishing', '#NgabloeVenture']);
+      // Fallback content matching user topic (without charging AI quota)
+      const fallbackTopic = (aiPromptTopic || title || 'Weekly Brand & Creator Update').trim();
+      setTitle(fallbackTopic);
+      setCaption(`${fallbackTopic} — Here are our latest updates and key takeaways for the community.`);
+      setDescription(`Detailed overview and notes for: ${fallbackTopic}.`);
+      setHashtags(['#SocialMedia', '#ContentCreator', '#BrandUpdate', '#Highlights', '#Community']);
       setShowAiModal(false);
     } finally {
       setIsGeneratingAi(false);
@@ -562,8 +618,8 @@ export const CreatePostScreen: React.FC<CreatePostScreenProps> = ({
           if (pc.twitterCaption) {
             newOverrides.twitter = { caption: pc.twitterCaption, hashtags: pc.hashtags?.slice(0, 3) || [] };
           }
-          if (pc.whatsappCaption) {
-            newOverrides.whatsapp = { caption: pc.whatsappCaption, hashtags: [] };
+          if (pc.threadsCaption || pc.threadsPost) {
+            newOverrides.threads = { caption: pc.threadsCaption || pc.threadsPost, hashtags: pc.hashtags?.slice(0, 5) || [] };
           }
           setPlatformOverrides(prev => ({ ...prev, ...newOverrides }));
         }
@@ -631,61 +687,64 @@ export const CreatePostScreen: React.FC<CreatePostScreenProps> = ({
     };
   };
 
-  const handleShareClick = () => {
+  const handlePostNowClick = () => {
     if (!validatePost()) return;
-
-    if (isScheduling) {
-      const scheduleCheck = canUseFeature('scheduled_posts');
-      if (!scheduleCheck.allowed) {
-        openUpgradeModal('Scheduled Posts', scheduleCheck.reason || 'Scheduled post limit reached for your plan.');
-        return;
-      }
-    }
-
+    setIsScheduling(false);
     const post = constructPostObject();
+    post.scheduledAt = null;
+    post.isDraft = false;
     onShareNow(post);
   };
 
-  const handleSaveDraftClick = () => {
+  const handleSchedulePostClick = () => {
+    if (!validatePost()) return;
+
+    const scheduleCheck = canUseFeature('scheduled_posts');
+    if (!scheduleCheck.allowed) {
+      openUpgradeModal('Scheduled Posts', scheduleCheck.reason || 'Scheduled post limit reached for your plan.');
+      return;
+    }
+
+    setIsScheduling(true);
     const post = constructPostObject();
-    post.isDraft = true;
-    onSaveDraft(post);
-    setDraftSavedToast(true);
-    setTimeout(() => setDraftSavedToast(false), 3000);
+    post.scheduledAt = `${scheduledDate}T${scheduledTime}:00`;
+    post.isDraft = false;
+    onShareNow(post);
   };
 
   return (
     <div className="space-y-6 pb-20 animate-fadeIn">
-      {/* Top Breadcrumb & Status */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold text-slate-900 dark:text-white">Create Post</h1>
-          <p className="text-xs text-slate-500 dark:text-slate-400">
-            Craft once, customize per platform, and launch Android shares
-          </p>
-        </div>
-        <button
-          id="btn-save-draft"
-          onClick={handleSaveDraftClick}
-          className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 transition-colors flex items-center gap-1.5"
-        >
-          <FolderOpen className="w-3.5 h-3.5 text-indigo-500" />
-          <span>Save Draft</span>
-        </button>
-      </div>
-
-      {/* Draft Saved Feedback Toast */}
-      {draftSavedToast && (
-        <div className="bg-emerald-500 text-white rounded-xl p-3 flex items-center justify-between text-xs font-semibold shadow-md animate-fadeIn">
-          <div className="flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 text-white shrink-0" />
-            <span>Post saved to Drafts! You can edit or share it anytime.</span>
+      {/* Top Header & Workflow Steps */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-xl font-bold text-slate-900 dark:text-white">Create Post</h1>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              Select accounts, prepare content, and Post Now or Schedule to Queue
+            </p>
           </div>
-          <button onClick={() => setDraftSavedToast(false)} className="p-1 hover:bg-white/20 rounded">
-            <X className="w-3.5 h-3.5" />
-          </button>
+          {onManageAccounts && (
+            <button
+              type="button"
+              onClick={onManageAccounts}
+              className="text-xs font-semibold px-3 py-1.5 rounded-xl border border-indigo-200 dark:border-indigo-800/60 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 transition-colors"
+            >
+              Social Accounts
+            </button>
+          )}
         </div>
-      )}
+
+        {/* Simplified Posting Flow Indicator */}
+        <div className="flex items-center gap-1 text-[10px] font-bold text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-900/90 px-3 py-2 rounded-xl border border-slate-200/70 dark:border-slate-800 overflow-x-auto no-scrollbar whitespace-nowrap">
+          <span className="text-indigo-600 dark:text-indigo-400">1. Select Accounts</span>
+          <span>→</span>
+          <span className="text-indigo-600 dark:text-indigo-400">2. Prepare Content</span>
+          <span>→</span>
+          <span className="text-emerald-600 dark:text-emerald-400">3. Post Now / Schedule</span>
+          <span>→</span>
+          <span>Queue & History</span>
+        </div>
+      </div>
 
       {/* Warning banner if validation fails */}
       {validationWarning && (
@@ -1190,7 +1249,7 @@ export const CreatePostScreen: React.FC<CreatePostScreenProps> = ({
             type="text"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            placeholder="e.g. Jangari, Surga Pemancing di Jawa Barat"
+            placeholder="e.g. Weekly Brand Update & Behind-the-Scenes Highlights"
             className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
           />
         </div>
@@ -1204,7 +1263,7 @@ export const CreatePostScreen: React.FC<CreatePostScreenProps> = ({
             rows={3}
             value={caption}
             onChange={(e) => setCaption(e.target.value)}
-            placeholder="e.g. Jangari bukan cuma tempat mancing, tapi juga menawarkan panorama dan suasana yang menarik untuk dijelajahi..."
+            placeholder="e.g. Write your main post caption here for cross-platform sharing..."
             className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 leading-relaxed"
           />
         </div>
@@ -1274,8 +1333,8 @@ export const CreatePostScreen: React.FC<CreatePostScreenProps> = ({
 
       {/* SECTION 4: SELECT DESTINATIONS */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 sm:p-5 space-y-4">
-        {/* POSTING GROUP SELECTOR */}
-        <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-750 space-y-2.5">
+        {/* POSTING GROUP SELECTOR DROPDOWN */}
+        <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-750 space-y-3">
           <div className="flex items-center justify-between">
             <label 
               htmlFor="select-posting-group"
@@ -1285,8 +1344,8 @@ export const CreatePostScreen: React.FC<CreatePostScreenProps> = ({
               <span>POSTING GROUP</span>
             </label>
             {selectedGroupId && (
-              <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">
-                {socialGroups.find(g => g.id === selectedGroupId)?.name} selected
+              <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-semibold">
+                {socialGroups.find(g => g.id === selectedGroupId)?.name} active
               </span>
             )}
           </div>
@@ -1294,58 +1353,144 @@ export const CreatePostScreen: React.FC<CreatePostScreenProps> = ({
           <div className="relative">
             <select
               id="select-posting-group"
-              value={selectedGroupId || ''}
+              value={isCreatingCustomGroup ? '__create_custom_group__' : (selectedGroupId || '')}
               onChange={(e) => handleSelectGroup(e.target.value || null)}
               className="w-full appearance-none px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-900 dark:text-white focus:outline-hidden focus:ring-2 focus:ring-indigo-500 pr-9 cursor-pointer transition-all shadow-xs"
             >
-              <option value="">No Group (Manual Selection)</option>
+              <option value="">No Group</option>
               {socialGroups.map(g => (
                 <option key={g.id} value={g.id}>
-                  {g.name} ({g.destinationIds?.length || 0} destinations)
+                  {g.name} ({(g.destinationIds || g.accountIds || []).length} accounts)
                 </option>
               ))}
+              <option value="__create_custom_group__">+ Create Custom Group</option>
             </select>
             <ChevronDown className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
           </div>
 
-          {/* Quick group pills for touch / mobile */}
-          {socialGroups.length > 0 && (
-            <div className="flex items-center gap-1.5 overflow-x-auto pt-0.5 no-scrollbar">
-              <button
-                type="button"
-                onClick={() => handleSelectGroup(null)}
-                className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold shrink-0 transition-colors ${
-                  !selectedGroupId
-                    ? 'bg-indigo-600 text-white shadow-xs'
-                    : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700 hover:border-slate-300'
-                }`}
-              >
-                No Group
-              </button>
-              {socialGroups.map(g => {
-                const isSelected = selectedGroupId === g.id;
-                return (
-                  <button
-                    key={g.id}
-                    type="button"
-                    onClick={() => handleSelectGroup(g.id)}
-                    className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold shrink-0 transition-colors flex items-center gap-1.5 ${
-                      isSelected
-                        ? 'bg-indigo-600 text-white shadow-xs'
-                        : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:border-indigo-300'
-                    }`}
-                  >
-                    <span>{g.name}</span>
-                    <span className={`text-[10px] px-1 py-0.2 rounded-full font-bold ${
-                      isSelected
-                        ? 'bg-white/20 text-white'
-                        : 'bg-slate-100 dark:bg-slate-800 text-slate-500'
-                    }`}>
-                      {g.destinationIds?.length || 0}
-                    </span>
-                  </button>
-                );
-              })}
+          {/* + Create Custom Group Inline Form */}
+          {isCreatingCustomGroup && (
+            <div className="p-3.5 rounded-xl bg-white dark:bg-slate-900 border border-indigo-300 dark:border-indigo-800 space-y-3 animate-fadeIn shadow-sm">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-900 dark:text-white">
+                  Create Custom Group
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsCreatingCustomGroup(false);
+                    setCustomGroupError(null);
+                  }}
+                  className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {customGroupError && (
+                <div className="p-2 rounded-lg bg-rose-500/10 border border-rose-500/30 text-[11px] text-rose-600 dark:text-rose-400">
+                  {customGroupError}
+                </div>
+              )}
+
+              <div className="space-y-1">
+                <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300 block">
+                  Group Name
+                </label>
+                <input
+                  id="input-custom-group-name"
+                  type="text"
+                  value={customGroupName}
+                  onChange={(e) => setCustomGroupName(e.target.value)}
+                  placeholder="Enter custom group name (e.g. Brand Channels, Main Accounts)..."
+                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:placeholder-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">
+                    Select Social Accounts ({customGroupAccountIds.length} selected)
+                  </label>
+                  <div className="flex items-center gap-2 text-[10px]">
+                    <button
+                      type="button"
+                      onClick={() => setCustomGroupAccountIds(allDestinations.map(d => d.id))}
+                      className="text-indigo-600 dark:text-indigo-400 font-semibold hover:underline"
+                    >
+                      Select All
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCustomGroupAccountIds([])}
+                      className="text-slate-400 hover:underline"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                </div>
+
+                <div className="max-h-44 overflow-y-auto space-y-1.5 pr-1">
+                  {allDestinations.map(dest => {
+                    const checked = customGroupAccountIds.includes(dest.id);
+                    const pConfig = PLATFORMS[dest.platformId];
+                    return (
+                      <label
+                        key={dest.id}
+                        className={`flex items-center gap-2.5 p-2 rounded-lg border text-xs cursor-pointer transition-colors ${
+                          checked
+                            ? 'border-indigo-500 bg-indigo-50/50 dark:bg-indigo-950/40'
+                            : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => {
+                            setCustomGroupAccountIds(prev =>
+                              prev.includes(dest.id) ? prev.filter(id => id !== dest.id) : [...prev, dest.id]
+                            );
+                          }}
+                          className="w-3.5 h-3.5 rounded text-indigo-600 focus:ring-indigo-500"
+                        />
+                        <span
+                          className="w-4 h-4 rounded flex items-center justify-center text-[9px] font-bold text-white shrink-0"
+                          style={{ backgroundColor: pConfig?.accentColor || '#4f46e5' }}
+                        >
+                          {pConfig?.name.charAt(0) || 'S'}
+                        </span>
+                        <span className="font-semibold text-slate-800 dark:text-slate-200 truncate">
+                          {dest.name}
+                        </span>
+                        <span className="text-[10px] text-slate-400 ml-auto truncate max-w-[120px]">
+                          {pConfig?.name}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsCreatingCustomGroup(false);
+                    setCustomGroupError(null);
+                  }}
+                  className="px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                >
+                  Cancel
+                </button>
+                <button
+                  id="btn-save-custom-group"
+                  type="button"
+                  onClick={handleSaveCustomGroup}
+                  className="px-4 py-1.5 rounded-lg text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white shadow-xs transition-all"
+                >
+                  Save
+                </button>
+              </div>
             </div>
           )}
         </div>
@@ -1524,65 +1669,50 @@ export const CreatePostScreen: React.FC<CreatePostScreenProps> = ({
         universalHashtags={hashtags}
       />
 
-      {/* SECTION 6: SCHEDULING (OPTIONAL) */}
+      {/* SECTION 6: SCHEDULE DATE & TIME */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 space-y-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Clock className="w-4 h-4 text-indigo-500" />
             <span className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">
-              Schedule or Share Now
+              Schedule Time (For Schedule Option)
             </span>
           </div>
-          <button
-            onClick={() => setIsScheduling(!isScheduling)}
-            className={`px-3 py-1 rounded-full text-xs font-semibold transition-colors ${
-              isScheduling
-                ? 'bg-indigo-600 text-white'
-                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
-            }`}
-          >
-            {isScheduling ? 'SCHEDULE MODE' : 'SHARE NOW'}
-          </button>
+          <span className="text-[11px] text-slate-400 font-medium">
+            {scheduledDate} • {scheduledTime}
+          </span>
         </div>
 
-        {isScheduling && (
-          <div className="space-y-3 pt-1">
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="text-[11px] font-medium text-slate-500 dark:text-slate-400 block mb-1">
-                  Post Date
-                </label>
-                <input
-                  type="date"
-                  value={scheduledDate}
-                  onChange={(e) => setScheduledDate(e.target.value)}
-                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white"
-                />
-              </div>
-              <div>
-                <label className="text-[11px] font-medium text-slate-500 dark:text-slate-400 block mb-1">
-                  Time (Asia/Jakarta)
-                </label>
-                <input
-                  type="time"
-                  value={scheduledTime}
-                  onChange={(e) => setScheduledTime(e.target.value)}
-                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white"
-                />
-              </div>
-            </div>
-
-            {/* Expo Go Graceful Notification Notice */}
-            <div className="text-[11px] text-slate-500 dark:text-slate-400 bg-amber-500/10 border border-amber-500/30 p-2.5 rounded-xl leading-relaxed">
-              <span className="font-semibold text-amber-700 dark:text-amber-300">
-                Notice (Expo Go):
-              </span>{' '}
-              {isExpoGoMode 
-                ? 'Push notifications require a development build. Scheduled posts will be stored in your Drafts/Queue with ready alarms.' 
-                : 'Reminder will notify you when it is time to open Android share targets.'}
-            </div>
+        <div className="grid grid-cols-2 gap-2 pt-1">
+          <div>
+            <label className="text-[11px] font-medium text-slate-500 dark:text-slate-400 block mb-1">
+              Schedule Date
+            </label>
+            <input
+              type="date"
+              value={scheduledDate}
+              onChange={(e) => {
+                setScheduledDate(e.target.value);
+                setIsScheduling(true);
+              }}
+              className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white"
+            />
           </div>
-        )}
+          <div>
+            <label className="text-[11px] font-medium text-slate-500 dark:text-slate-400 block mb-1">
+              Time (Local)
+            </label>
+            <input
+              type="time"
+              value={scheduledTime}
+              onChange={(e) => {
+                setScheduledTime(e.target.value);
+                setIsScheduling(true);
+              }}
+              className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white"
+            />
+          </div>
+        </div>
       </div>
 
       {/* SECTION 7: LIVE SOCIAL MEDIA PREVIEW */}
@@ -1592,25 +1722,26 @@ export const CreatePostScreen: React.FC<CreatePostScreenProps> = ({
         userAccounts={userAccounts}
       />
 
-      {/* FINAL ACTION BAR */}
-      <div className="pt-2 space-y-2.5">
+      {/* PRIMARY ACTIONS: POST NOW or SCHEDULE / ADD TO QUEUE */}
+      <div className="pt-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
         <button
-          id="btn-share-to-selected"
-          onClick={handleShareClick}
-          className="w-full bg-indigo-600 hover:bg-indigo-500 active:scale-[0.99] text-white font-semibold py-4 px-6 rounded-2xl flex items-center justify-center gap-2 shadow-xl shadow-indigo-600/30 text-base transition-all"
+          id="btn-post-now"
+          type="button"
+          onClick={handlePostNowClick}
+          className="w-full bg-indigo-600 hover:bg-indigo-500 active:scale-[0.99] text-white font-bold py-4 px-5 rounded-2xl flex items-center justify-center gap-2 shadow-xl shadow-indigo-600/30 text-sm sm:text-base transition-all"
         >
-          <span>{isScheduling ? 'SCHEDULE POST' : 'PROCEED TO SHARE (MANUAL CROSS-POST)'}</span>
+          <span>POST NOW</span>
           <ArrowRight className="w-5 h-5" />
         </button>
 
         <button
-          id="btn-save-draft-bottom"
+          id="btn-schedule-post"
           type="button"
-          onClick={handleSaveDraftClick}
-          className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold py-3 px-4 rounded-xl flex items-center justify-center gap-2 text-xs transition-colors"
+          onClick={handleSchedulePostClick}
+          className="w-full bg-emerald-600 hover:bg-emerald-500 active:scale-[0.99] text-white font-bold py-4 px-5 rounded-2xl flex items-center justify-center gap-2 shadow-xl shadow-emerald-600/25 text-sm sm:text-base transition-all"
         >
-          <FolderOpen className="w-4 h-4 text-slate-400" />
-          <span>Save as Draft</span>
+          <Calendar className="w-5 h-5" />
+          <span>SCHEDULE / ADD TO QUEUE</span>
         </button>
       </div>
 
@@ -1645,7 +1776,7 @@ export const CreatePostScreen: React.FC<CreatePostScreenProps> = ({
                 rows={3}
                 value={aiPromptTopic}
                 onChange={(e) => setAiPromptTopic(e.target.value)}
-                placeholder="e.g. Trip mancing di waduk Jangari Jawa Barat bersama teman, spot ikan air tawar mantap..."
+                placeholder="e.g. New product launch announcement, weekly brand highlights, or creator tips..."
                 className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-3 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />
             </div>

@@ -21,7 +21,6 @@ import { NewsHunterScreen } from './components/NewsHunterScreen';
 import { CreatePostScreen } from './components/CreatePostScreen';
 import { ShareConfirmationScreen } from './components/ShareConfirmationScreen';
 import { HistoryScreen } from './components/HistoryScreen';
-import { DraftsScreen } from './components/DraftsScreen';
 import { QueueScreen } from './components/QueueScreen';
 import { SettingsScreen } from './components/SettingsScreen';
 
@@ -111,26 +110,7 @@ function AppContent({
 
   // History State
   const [history, setHistory] = useState<SocialPost[]>(() => {
-    return dataService.getPostHistory([
-      {
-        id: 'sample-post-1',
-        title: 'Jangari, Surga Pemancing di Jawa Barat',
-        caption: 'Jangari bukan cuma tempat mancing, tapi juga menawarkan panorama dan suasana yang menarik untuk dijelajahi.',
-        description: 'Jangari Reservoir di Jawa Barat merupakan destinasi favorit pecinta mancing.',
-        hashtags: ['#Jangari', '#Mancing', '#WisataJawaBarat', '#Fishing', '#NgabloeVenture'],
-        media: SAMPLE_MEDIA_LIBRARY[0],
-        selectedPlatforms: ['facebook_page', 'instagram', 'tiktok', 'youtube', 'twitter', 'whatsapp'],
-        createdAt: new Date(Date.now() - 1000 * 60 * 60 * 2).toISOString(),
-        platformStatuses: {
-          facebook_page: { status: 'SHARED', note: 'Shared to Facebook Page', updatedAt: new Date().toISOString() },
-          instagram: { status: 'SHARED', note: 'Shared to Instagram Reels', updatedAt: new Date().toISOString() },
-          tiktok: { status: 'OPENED', note: 'Opened in TikTok composer', updatedAt: new Date().toISOString() },
-          youtube: { status: 'SHARED', note: 'Uploaded to YouTube', updatedAt: new Date().toISOString() },
-          twitter: { status: 'SHARED', note: 'Shared to X', updatedAt: new Date().toISOString() },
-          whatsapp: { status: 'SHARED', note: 'Sent via WhatsApp chat', updatedAt: new Date().toISOString() }
-        }
-      }
-    ]);
+    return dataService.getPostHistory([]);
   });
 
   // Drafts State
@@ -156,10 +136,24 @@ function AppContent({
 
   // Sync settings theme to document
   useEffect(() => {
-    if (settings.theme === 'dark') {
-      document.documentElement.classList.add('dark');
+    const root = document.documentElement;
+    if (settings.theme === 'lollipop') {
+      root.classList.remove('dark');
+      root.classList.add('theme-lollipop');
+    } else if (settings.theme === 'dark') {
+      root.classList.remove('theme-lollipop');
+      root.classList.add('dark');
+    } else if (settings.theme === 'light') {
+      root.classList.remove('theme-lollipop');
+      root.classList.remove('dark');
     } else {
-      document.documentElement.classList.remove('dark');
+      root.classList.remove('theme-lollipop');
+      const prefersDark = typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+      if (prefersDark) {
+        root.classList.add('dark');
+      } else {
+        root.classList.remove('dark');
+      }
     }
     dataService.saveUserSettings(settings);
   }, [settings]);
@@ -273,10 +267,12 @@ function AppContent({
   };
 
   // Handle Groups CRUD operations
-  const handleCreateGroup = (newGroupData: Omit<SocialGroup, 'id' | 'createdAt'>) => {
+  const handleCreateGroup = (newGroupData: Omit<SocialGroup, 'id' | 'createdAt'>): SocialGroup => {
     const newGroup: SocialGroup = {
       ...newGroupData,
       id: `group-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      isUserCreated: true,
+      isExamplePlaceholder: false,
       createdAt: new Date().toISOString()
     };
     setSocialGroups(prev => [...prev, newGroup]);
@@ -285,10 +281,11 @@ function AppContent({
       message: `Group "${newGroup.name}" created with ${newGroup.destinationIds.length} destinations.`
     });
     setTimeout(() => setInAppAlert(null), 3000);
+    return newGroup;
   };
 
   const handleUpdateGroup = (groupId: string, updates: Partial<Omit<SocialGroup, 'id' | 'createdAt'>>) => {
-    setSocialGroups(prev => prev.map(g => g.id === groupId ? { ...g, ...updates } : g));
+    setSocialGroups(prev => prev.map(g => g.id === groupId ? { ...g, ...updates, isUserCreated: true, isExamplePlaceholder: false } : g));
   };
 
   const handleDeleteGroup = (groupId: string) => {
@@ -302,6 +299,8 @@ function AppContent({
       ...original,
       id: `group-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
       name: `${original.name} (Copy)`,
+      isUserCreated: true,
+      isExamplePlaceholder: false,
       createdAt: new Date().toISOString()
     };
     setSocialGroups(prev => [...prev, duplicated]);
@@ -379,8 +378,8 @@ function AppContent({
       if (pc.twitterCaption) {
         platformOverrides.twitter = { caption: pc.twitterCaption, hashtags: pc.hashtags?.slice(0, 3) || [] };
       }
-      if (pc.whatsappCaption) {
-        platformOverrides.whatsapp = { caption: pc.whatsappCaption, hashtags: [] };
+      if (pc.threadsCaption || pc.whatsappCaption) {
+        platformOverrides.threads = { caption: pc.threadsCaption || pc.whatsappCaption, hashtags: pc.hashtags?.slice(0, 3) || [] };
       }
     }
 
@@ -634,19 +633,16 @@ function AppContent({
     setConfirmingPost(post);
   };
 
-  // User saves draft
+  // User saves draft (migrated to Queue / Schedule since Drafts is removed)
   const handleSaveDraft = (draft: SocialPost) => {
-    setDrafts(prev => {
-      const filtered = prev.filter(d => d.id !== draft.id);
-      return [draft, ...filtered];
-    });
+    handleAddToQueue(draft);
     setEditingDraft(null);
     setInAppAlert({
-      title: 'Draft Saved',
-      message: `Post "${draft.title || draft.caption.slice(0, 25)}..." saved to Drafts.`
+      title: 'Added to Queue',
+      message: `Post "${draft.title || draft.caption.slice(0, 25)}..." added to Queue.`
     });
     setTimeout(() => setInAppAlert(null), 3000);
-    setActiveTab('drafts');
+    setActiveTab('queue');
   };
 
   // Edit draft
@@ -728,15 +724,31 @@ function AppContent({
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 transition-colors flex justify-center selection:bg-indigo-500 selection:text-white">
       {/* Mobile Frame Container (Max width typical for Android phone screens) */}
-      <div className="w-full max-w-md min-h-screen flex flex-col bg-white dark:bg-slate-950 shadow-2xl relative">
+      <div className="w-full max-w-md min-h-screen flex flex-col bg-white dark:bg-slate-950 shadow-2xl relative lollipop-shell">
         
         {/* Top Android Status Bar emulation */}
-        <header className="px-5 pt-3 pb-2 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-800/60 shrink-0">
+        <header className="px-5 pt-3 pb-2 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-800/60 shrink-0 lollipop-header">
           <div className="flex items-center gap-2 font-bold tracking-tight text-slate-800 dark:text-slate-200">
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span>Social Share Scheduler</span>
+            <span>{settings.appName || 'Social Share Scheduler'}</span>
           </div>
-          <div className="flex items-center gap-2 text-[11px]">
+          <div className="flex items-center gap-1.5 text-[11px]">
+            <button
+              type="button"
+              onClick={() => {
+                const order: Array<'dark' | 'light' | 'lollipop' | 'system'> = ['dark', 'light', 'lollipop', 'system'];
+                const idx = order.indexOf(settings.theme || 'dark');
+                const nextTheme = order[(idx + 1) % order.length];
+                handleUpdateSettings({ theme: nextTheme });
+              }}
+              className="px-2 py-0.5 rounded-full border border-slate-200 dark:border-slate-700 text-[10px] font-semibold flex items-center gap-1 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              title="Switch Theme (Dark / Light / Lollipop / System)"
+            >
+              {settings.theme === 'lollipop' && (
+                <span className="w-2 h-2 rounded-full bg-[#E53935] inline-block" />
+              )}
+              <span className="capitalize">{settings.theme || 'dark'}</span>
+            </button>
             <PlanBadge 
               interactive
               onClick={() => {
@@ -811,9 +823,13 @@ function AppContent({
                 <HomeScreen
                   onCreatePost={handleStartCreate}
                   onSelectTab={setActiveTab}
+                  onOpenSettingsSubTab={(sub) => {
+                    setSettingsSubTab(sub);
+                    setActiveTab('settings');
+                  }}
                   onOpenDriveModal={() => setIsDriveModalOpen(true)}
                   history={history}
-                  drafts={drafts}
+                  groupsCount={socialGroups.length}
                   queueCount={contentQueue.filter(q => q.status === 'scheduled' || q.status === 'queued').length}
                   isDriveConnected={drive.isConnected}
                   driveUserEmail={drive.userEmail}
@@ -837,6 +853,11 @@ function AppContent({
                   initialGroupId={selectedGroupIdForCreate}
                   onShareNow={handleShareNowFromCreate}
                   onSaveDraft={handleSaveDraft}
+                  onCreateGroup={handleCreateGroup}
+                  onManageAccounts={() => {
+                    setSettingsSubTab('accounts');
+                    setActiveTab('settings');
+                  }}
                   onOpenDriveModal={() => setIsDriveModalOpen(true)}
                   isDriveConnected={drive.isConnected}
                   isExpoGoMode={settings.isExpoGoMode}
@@ -856,23 +877,11 @@ function AppContent({
                   onRescheduleItem={handleRescheduleQueueItem}
                   onDuplicateItem={handleDuplicateQueueItem}
                   onCreateNewScheduled={handleStartCreate}
+                  onViewHistory={() => setActiveTab('history')}
                   userAccounts={userAccounts}
                   socialGroups={socialGroups}
                 />
               )}
-
-              {activeTab === 'drafts' && (
-                <DraftsScreen
-                  drafts={drafts}
-                  onEditDraft={handleEditDraft}
-                  onDeleteDraft={handleDeleteDraft}
-                  onShareDraft={(draft) => setConfirmingPost({ ...draft, isDraft: true })}
-                  onCreateNew={handleStartCreate}
-                  userAccounts={userAccounts}
-                  socialGroups={socialGroups}
-                />
-              )}
-
 
               {activeTab === 'history' && (
                 <HistoryScreen
@@ -934,7 +943,6 @@ function AppContent({
             setConfirmingPost(null);
             setActiveTab(tab);
           }}
-          draftsCount={drafts.length}
           newStoriesCount={newStoriesCount}
           queueCount={contentQueue.filter(q => q.status === 'scheduled' || q.status === 'queued').length}
           language={settings.language}
@@ -946,7 +954,7 @@ function AppContent({
 }
 
 export default function App() {
-  const [settingsSubTab, setSettingsSubTab] = useState<SettingsSubTab>('general');
+  const [settingsSubTab, setSettingsSubTab] = useState<SettingsSubTab>('accounts');
   const [activeTab, setActiveTab] = useState<NavigationTab>(() => {
     try {
       const saved = localStorage.getItem('sss_settings');

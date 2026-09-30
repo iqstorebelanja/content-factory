@@ -36,7 +36,7 @@ export const ACTIVE_SHARE_SESSION_STORAGE_KEY = 'sss_active_share_session';
  * 4. TikTok
  * 5. YouTube
  * 6. X (Twitter)
- * 7. WhatsApp
+ * 7. Threads
  */
 export function getRecommendedPlatformOrder(platformId: PlatformId): number {
   switch (platformId) {
@@ -54,7 +54,7 @@ export function getRecommendedPlatformOrder(platformId: PlatformId): number {
       return 5;
     case 'twitter':
       return 6;
-    case 'whatsapp':
+    case 'threads':
       return 7;
     default:
       return 99;
@@ -101,8 +101,8 @@ export function determineDestinationContentType(
     case 'twitter':
       return 'tweet';
 
-    case 'whatsapp':
-      return 'message';
+    case 'threads':
+      return 'thread';
 
     default:
       return 'post';
@@ -354,16 +354,20 @@ export function formatPlatformCaption(
   const mainDesc = (content.description || '').trim();
 
   switch (platformId) {
-    case 'whatsapp': {
-      // WhatsApp supports *bold* styling for headings + CTA
+    case 'threads': {
+      // Threads limit 500 characters
       let message = mainCaption || mainDesc;
-      if (mainTitle) {
-        message = `*${mainTitle}*\n\n${message}`;
+      if (mainTitle && !message.includes(mainTitle)) {
+        message = `${mainTitle}\n\n${message}`.trim();
       }
       if (content.callToAction) {
         message += `\n\n${content.callToAction}`;
       }
-      return `${message}${tagsStr}`.trim();
+      let text = `${message}${tagsStr}`.trim();
+      if (text.length > 500) {
+        text = text.slice(0, 497) + '...';
+      }
+      return text;
     }
 
     case 'youtube': {
@@ -514,14 +518,7 @@ export function openPlatformComposer(
 
   // 1. If a specific destination account was provided, use its tailored URL/identifier
   if (targetDestination) {
-    if (targetDestination.platformId === 'whatsapp') {
-      const cleanPhone = targetDestination.identifier?.replace(/[^0-9]/g, '');
-      if (cleanPhone) {
-        targetUrl = `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(textPayload)}`;
-      } else if (targetDestination.url) {
-        targetUrl = sanitizeUrl(targetDestination.url);
-      }
-    } else if (targetDestination.url) {
+    if (targetDestination.url) {
       targetUrl = sanitizeUrl(targetDestination.url);
     }
   }
@@ -531,14 +528,7 @@ export function openPlatformComposer(
     const destinations = getDestinationsForPlatform(platformId, userAccounts);
     if (destinations.length > 0) {
       const first = destinations[0];
-      if (platformId === 'whatsapp') {
-        const cleanPhone = first.identifier?.replace(/[^0-9]/g, '');
-        if (cleanPhone) {
-          targetUrl = `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(textPayload)}`;
-        } else if (first.url) {
-          targetUrl = sanitizeUrl(first.url);
-        }
-      } else if (first.url) {
+      if (first.url) {
         targetUrl = sanitizeUrl(first.url);
       }
     }

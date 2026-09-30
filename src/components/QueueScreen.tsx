@@ -33,6 +33,7 @@ import {
   PlatformId
 } from '../types';
 import { PLATFORMS } from '../data/platforms';
+import { getAllDestinations, normalizeUserAccounts } from '../utils/socialAccounts';
 import { CalendarView } from './CalendarView';
 
 export type TimelineFilter = 'all' | 'due_now' | 'today' | 'upcoming';
@@ -47,8 +48,10 @@ interface QueueScreenProps {
   onRescheduleItem: (id: string, newScheduledAt: string, newPriority?: QueueItemPriority) => void;
   onDuplicateItem: (id: string) => void;
   onCreateNewScheduled: (targetDate?: string) => void;
+  onViewHistory?: () => void;
   userAccounts?: UserSocialAccounts;
   socialGroups?: SocialGroup[];
+  initialViewMode?: 'timeline' | 'calendar';
 }
 
 export const QueueScreen: React.FC<QueueScreenProps> = ({
@@ -61,11 +64,14 @@ export const QueueScreen: React.FC<QueueScreenProps> = ({
   onRescheduleItem,
   onDuplicateItem,
   onCreateNewScheduled,
+  onViewHistory,
   userAccounts,
-  socialGroups = []
+  socialGroups = [],
+  initialViewMode = 'timeline'
 }) => {
   // View mode switcher: Timeline vs Calendar
-  const [viewMode, setViewMode] = useState<'timeline' | 'calendar'>('timeline');
+  const [viewMode, setViewMode] = useState<'timeline' | 'calendar'>(initialViewMode);
+  const allDestinations = useMemo(() => getAllDestinations(normalizeUserAccounts(userAccounts)), [userAccounts]);
 
   // Primary requested filter: 'Today', 'Upcoming', 'Due Now', and 'All'
   const [timelineFilter, setTimelineFilter] = useState<TimelineFilter>('all');
@@ -156,7 +162,12 @@ export const QueueScreen: React.FC<QueueScreenProps> = ({
         if (timelineFilter === 'upcoming' && !checkIsUpcoming(item)) return false;
 
         // Secondary status filter
-        if (statusFilter !== 'all' && item.status !== statusFilter) return false;
+        if (statusFilter !== 'all') {
+          if (statusFilter === 'waiting' && item.status !== 'waiting' && item.status !== 'paused') return false;
+          else if (statusFilter === 'ready' && item.status !== 'ready' && item.status !== 'queued') return false;
+          else if (statusFilter === 'completed' && item.status !== 'completed' && item.status !== 'published') return false;
+          else if (!['waiting', 'ready', 'completed'].includes(statusFilter) && item.status !== statusFilter) return false;
+        }
 
         // Secondary priority filter
         if (priorityFilter !== 'all' && item.priority !== priorityFilter) return false;
@@ -246,25 +257,33 @@ export const QueueScreen: React.FC<QueueScreenProps> = ({
           label: 'SCHEDULED',
           badgeClass: 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30'
         };
+      case 'waiting':
+      case 'paused':
+        return {
+          label: 'WAITING',
+          badgeClass: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30'
+        };
+      case 'ready':
       case 'queued':
         return {
-          label: 'READY TO POST',
+          label: 'READY',
           badgeClass: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30'
         };
       case 'publishing':
         return {
-          label: 'PUBLISHING',
+          label: 'SHARING',
           badgeClass: 'bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/30 animate-pulse'
         };
+      case 'completed':
       case 'published':
         return {
-          label: 'PUBLISHED',
+          label: 'COMPLETED',
           badgeClass: 'bg-teal-500/10 text-teal-600 dark:text-teal-400 border border-teal-500/30'
         };
-      case 'paused':
+      case 'skipped':
         return {
-          label: 'PAUSED',
-          badgeClass: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30'
+          label: 'SKIPPED',
+          badgeClass: 'bg-slate-500/10 text-slate-600 dark:text-slate-400 border border-slate-500/30'
         };
       case 'failed':
       default:
@@ -278,26 +297,41 @@ export const QueueScreen: React.FC<QueueScreenProps> = ({
   return (
     <div className="space-y-4 pb-24 animate-fadeIn">
       {/* HEADER BAR */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-xl font-bold text-slate-900 dark:text-white">Content Queue</h1>
+            <h1 className="text-xl font-bold text-slate-900 dark:text-white">
+              Queue & Schedule
+            </h1>
             <span className="px-2 py-0.5 rounded-full text-[11px] font-black bg-indigo-100 dark:bg-indigo-950/80 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800">
               {queue.length}
             </span>
           </div>
           <p className="text-xs text-slate-500 dark:text-slate-400">
-            Posts timeline, scheduled calendar delivery & cross-post execution
+            Ready to share, scheduled, waiting, completed, failed & skipped posts
           </p>
         </div>
-        <button
-          id="btn-new-scheduled"
-          onClick={() => onCreateNewScheduled()}
-          className="text-xs font-semibold px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white flex items-center gap-1.5 shadow-md shadow-indigo-600/20 transition-all active:scale-95"
-        >
-          <PlusCircle className="w-3.5 h-3.5" />
-          <span>New Scheduled</span>
-        </button>
+        <div className="flex items-center gap-1.5">
+          {onViewHistory && (
+            <button
+              id="btn-queue-view-history"
+              type="button"
+              onClick={onViewHistory}
+              className="text-xs font-semibold px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-1 transition-all"
+            >
+              <Clock className="w-3.5 h-3.5 text-indigo-500" />
+              <span>History</span>
+            </button>
+          )}
+          <button
+            id="btn-new-scheduled"
+            onClick={() => onCreateNewScheduled()}
+            className="text-xs font-semibold px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white flex items-center gap-1.5 shadow-md shadow-indigo-600/20 transition-all active:scale-95"
+          >
+            <PlusCircle className="w-3.5 h-3.5" />
+            <span>Schedule Post</span>
+          </button>
+        </div>
       </div>
 
       {/* VIEW SWITCHER: TIMELINE vs CALENDAR */}
@@ -440,6 +474,32 @@ export const QueueScreen: React.FC<QueueScreenProps> = ({
           )}
         </div>
 
+        {/* Queue Status Filter Pills: Ready, Scheduled, Waiting, Completed, Failed, Skipped */}
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar">
+          {[
+            { id: 'all', label: 'All' },
+            { id: 'ready', label: 'Ready to Share' },
+            { id: 'scheduled', label: 'Scheduled' },
+            { id: 'waiting', label: 'Waiting' },
+            { id: 'completed', label: 'Completed' },
+            { id: 'failed', label: 'Failed' },
+            { id: 'skipped', label: 'Skipped' }
+          ].map(st => (
+            <button
+              key={st.id}
+              type="button"
+              onClick={() => setStatusFilter(st.id)}
+              className={`px-2.5 py-1 rounded-xl text-[11px] font-bold whitespace-nowrap transition-all ${
+                statusFilter === st.id
+                  ? 'bg-indigo-600 text-white shadow-xs'
+                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+              }`}
+            >
+              {st.label}
+            </button>
+          ))}
+        </div>
+
         {/* Secondary filters row */}
         <div className="flex items-center justify-between pt-1 border-t border-slate-100 dark:border-slate-800 text-xs flex-wrap gap-2">
           {/* Status Filter Dropdown */}
@@ -453,10 +513,11 @@ export const QueueScreen: React.FC<QueueScreenProps> = ({
             >
               <option value="all">All Status</option>
               <option value="scheduled">Scheduled</option>
-              <option value="queued">Ready to Post</option>
+              <option value="waiting">Waiting</option>
+              <option value="ready">Ready</option>
+              <option value="completed">Completed</option>
               <option value="failed">Failed</option>
-              <option value="paused">Paused</option>
-              <option value="published">Published</option>
+              <option value="skipped">Skipped</option>
             </select>
           </div>
 
@@ -645,32 +706,47 @@ export const QueueScreen: React.FC<QueueScreenProps> = ({
                   </div>
                 </div>
 
-                {/* TARGET PLATFORMS ROW */}
-                <div className="flex items-center justify-between pt-1 border-t border-slate-100 dark:border-slate-800/80">
-                  <div className="flex items-center gap-1 flex-wrap">
-                    {item.selectedPlatforms.map(pId => {
-                      const p = PLATFORMS[pId];
-                      return (
-                        <span
-                          key={pId}
-                          className="text-[9px] font-bold px-2 py-0.5 rounded-md text-white shadow-2xs"
-                          style={{ backgroundColor: p?.color || '#4f46e5' }}
-                        >
-                          {p?.badge || pId}
-                        </span>
-                      );
-                    })}
-                    {item.selectedDestinationIds && item.selectedDestinationIds.length > 0 && (
-                      <span className="text-[9px] font-semibold text-slate-400 ml-1">
-                        ({item.selectedDestinationIds.length} accounts)
+                {/* TARGET PLATFORMS & ACCOUNTS ROW */}
+                <div className="space-y-1.5 pt-1.5 border-t border-slate-100 dark:border-slate-800/80">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1 flex-wrap">
+                      {item.selectedPlatforms.map(pId => {
+                        const p = PLATFORMS[pId];
+                        return (
+                          <span
+                            key={pId}
+                            className="text-[9px] font-bold px-2 py-0.5 rounded-md text-white shadow-2xs"
+                            style={{ backgroundColor: p?.color || '#4f46e5' }}
+                          >
+                            {p?.badge || pId}
+                          </span>
+                        );
+                      })}
+                    </div>
+
+                    {item.metadata?.notes && (
+                      <span className="text-[10px] text-slate-400 italic truncate max-w-[140px]">
+                        💬 {item.metadata.notes}
                       </span>
                     )}
                   </div>
 
-                  {item.metadata?.notes && (
-                    <span className="text-[10px] text-slate-400 italic truncate max-w-[140px]">
-                      💬 {item.metadata.notes}
-                    </span>
+                  {/* Account Names */}
+                  {item.selectedDestinationIds && item.selectedDestinationIds.length > 0 && (
+                    <div className="flex items-center gap-1 flex-wrap">
+                      <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">Accounts:</span>
+                      {item.selectedDestinationIds.map(destId => {
+                        const dest = allDestinations.find(d => d.id === destId);
+                        return (
+                          <span
+                            key={destId}
+                            className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200/70 dark:border-slate-700"
+                          >
+                            {dest ? dest.name : destId}
+                          </span>
+                        );
+                      })}
+                    </div>
                   )}
                 </div>
 
@@ -722,26 +798,30 @@ export const QueueScreen: React.FC<QueueScreenProps> = ({
                     </button>
                   </div>
 
-                  {/* Secondary control bar: pause/play & delete */}
-                  <div className="flex items-center justify-between mt-2 pt-1.5 text-[11px] text-slate-400">
-                    <div className="flex items-center gap-2">
-                      {item.status === 'paused' ? (
-                        <button
-                          onClick={() => onUpdateStatus(item.id, 'scheduled')}
-                          className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-semibold hover:underline"
-                        >
-                          <Play className="w-3 h-3" />
-                          <span>Resume Delivery</span>
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => onUpdateStatus(item.id, 'paused')}
-                          className="flex items-center gap-1 text-amber-600 dark:text-amber-400 font-semibold hover:underline"
-                        >
-                          <Pause className="w-3 h-3" />
-                          <span>Pause</span>
-                        </button>
-                      )}
+                  {/* Secondary control bar: status quick selector & delete */}
+                  <div className="flex items-center justify-between mt-2 pt-1.5 text-[11px] text-slate-400 flex-wrap gap-2">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] font-semibold text-slate-400">Set Status:</span>
+                      <select
+                        value={
+                          item.status === 'paused'
+                            ? 'waiting'
+                            : item.status === 'queued'
+                            ? 'ready'
+                            : item.status === 'published'
+                            ? 'completed'
+                            : item.status
+                        }
+                        onChange={(e) => onUpdateStatus(item.id, e.target.value as QueueItemStatus)}
+                        className="bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-0.5 text-[10px] font-bold text-slate-700 dark:text-slate-300"
+                      >
+                        <option value="scheduled">Scheduled</option>
+                        <option value="waiting">Waiting</option>
+                        <option value="ready">Ready</option>
+                        <option value="completed">Completed</option>
+                        <option value="failed">Failed</option>
+                        <option value="skipped">Skipped</option>
+                      </select>
                     </div>
 
                     <button

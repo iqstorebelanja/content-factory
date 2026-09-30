@@ -588,7 +588,7 @@ export const NewsHunterScreen: React.FC<NewsHunterScreenProps> = ({
         youtubeTitle: rewrite.youtubeTitle,
         youtubeDescription: rewrite.youtubeDescription,
         twitterCaption: rewrite.xPost,
-        whatsappCaption: rewrite.whatsappMessage,
+        threadsCaption: rewrite.threadsPost || rewrite.xPost,
         hashtags: rewrite.hashtags?.facebook || []
       } : undefined
     });
@@ -1992,18 +1992,7 @@ export const NewsHunterScreen: React.FC<NewsHunterScreenProps> = ({
                           <span>{item.rewrite ? 'Rewrite Again' : 'Rewrite'}</span>
                         </button>
 
-                        {/* Save Draft */}
-                        <button
-                          type="button"
-                          onClick={() => handleSaveLibraryItemAsDraft(item)}
-                          className="text-xs font-semibold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 px-2.5 py-1.5 rounded-xl flex items-center gap-1 transition-colors"
-                          title="Directly save as draft with NEWS badge"
-                        >
-                          <BookmarkCheck className="w-3.5 h-3.5 text-indigo-500" />
-                          <span>Save Draft</span>
-                        </button>
-
-                        {/* Create Post */}
+                        {/* Create Post / Schedule */}
                         <button
                           type="button"
                           onClick={() => {
@@ -2034,7 +2023,7 @@ export const NewsHunterScreen: React.FC<NewsHunterScreenProps> = ({
                                 youtubeTitle: item.rewrite.youtubeTitle,
                                 youtubeDescription: item.rewrite.youtubeDescription,
                                 twitterCaption: item.rewrite.xPost,
-                                whatsappCaption: item.rewrite.whatsappMessage,
+                                threadsCaption: item.rewrite.threadsPost || item.rewrite.xPost,
                                 hashtags: item.rewrite.hashtags?.facebook || []
                               } : undefined
                             });

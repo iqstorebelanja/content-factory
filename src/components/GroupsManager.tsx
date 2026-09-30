@@ -42,6 +42,7 @@ export const GroupsManager: React.FC<GroupsManagerProps> = ({
   const { canUseFeature, openUpgradeModal } = usePlanContext();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingGroup, setEditingGroup] = useState<SocialGroup | null>(null);
+  const [selectedFilterGroupId, setSelectedFilterGroupId] = useState<string>('all');
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [copiedToast, setCopiedToast] = useState<string | null>(null);
 
@@ -85,7 +86,14 @@ export const GroupsManager: React.FC<GroupsManagerProps> = ({
   const handleDelete = (groupId: string) => {
     onDeleteGroup(groupId);
     setConfirmDeleteId(null);
+    if (selectedFilterGroupId === groupId) {
+      setSelectedFilterGroupId('all');
+    }
   };
+
+  const displayedGroups = selectedFilterGroupId === 'all'
+    ? groups
+    : groups.filter(g => g.id === selectedFilterGroupId);
 
   return (
     <div className="space-y-4">
@@ -97,28 +105,65 @@ export const GroupsManager: React.FC<GroupsManagerProps> = ({
         </div>
       )}
 
-      {/* Header & Create Button */}
-      <div className="flex items-center justify-between flex-wrap gap-2 pb-1">
-        <div>
-          <h2 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
-            <span>Social Media Groups</span>
-            <span className="text-[11px] px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 font-semibold border border-indigo-200 dark:border-indigo-800">
-              {groups.length} {groups.length === 1 ? 'group' : 'groups'}
-            </span>
-          </h2>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            Bundle accounts into workspaces (e.g. NGABLOEVENTURE, PERSIB) for instant multi-destination selection
-          </p>
+      {/* Header & Create Custom Group (+) Button */}
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-4 sm:p-5 space-y-4 shadow-sm">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div>
+            <h2 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+              <Layers className="w-4 h-4 text-indigo-500" />
+              <span>Posting Groups</span>
+              <span className="text-[11px] px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 font-semibold border border-indigo-200 dark:border-indigo-800">
+                {groups.length} {groups.length === 1 ? 'group' : 'groups'}
+              </span>
+            </h2>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+              Select an existing group, create custom groups, and choose social accounts for each group
+            </p>
+          </div>
+
+          <button
+            id="btn-create-custom-group-settings"
+            type="button"
+            onClick={handleOpenCreate}
+            className="px-3.5 py-2 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm flex items-center gap-1.5 transition-all active:scale-[0.98]"
+          >
+            <Plus className="w-4 h-4" />
+            <span>+ CREATE CUSTOM GROUP</span>
+          </button>
         </div>
 
-        <button
-          type="button"
-          onClick={handleOpenCreate}
-          className="px-3.5 py-2 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm flex items-center gap-1.5 transition-all active:scale-[0.98]"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Create Group</span>
-        </button>
+        {/* Select Existing Group Dropdown */}
+        {groups.length > 0 && (
+          <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-700/70 space-y-1.5">
+            <label
+              htmlFor="settings-select-existing-group"
+              className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 block"
+            >
+              Select Existing Group
+            </label>
+            <select
+              id="settings-select-existing-group"
+              value={selectedFilterGroupId}
+              onChange={(e) => {
+                const val = e.target.value;
+                if (val === '__create_new__') {
+                  handleOpenCreate();
+                } else {
+                  setSelectedFilterGroupId(val);
+                }
+              }}
+              className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            >
+              <option value="all">All Custom Groups ({groups.length})</option>
+              {groups.map(g => (
+                <option key={g.id} value={g.id}>
+                  {g.name} ({(g.destinationIds || []).length} social accounts)
+                </option>
+              ))}
+              <option value="__create_new__">+ Create Custom Group</option>
+            </select>
+          </div>
+        )}
       </div>
 
       {/* Groups List */}
@@ -127,22 +172,22 @@ export const GroupsManager: React.FC<GroupsManagerProps> = ({
           <div className="w-12 h-12 rounded-2xl bg-indigo-50 dark:bg-indigo-950/50 flex items-center justify-center text-indigo-600 dark:text-indigo-400 mx-auto">
             <Layers className="w-6 h-6" />
           </div>
-          <h3 className="text-sm font-bold text-slate-900 dark:text-white">No Groups Created Yet</h3>
+          <h3 className="text-sm font-bold text-slate-900 dark:text-white">No custom posting groups yet.</h3>
           <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto">
-            Create groups to organize accounts by brand, client, or topic (e.g. NGABLOEVENTURE or PERSIB).
+            Create your own custom posting groups and select which social accounts belong to each group.
           </p>
           <button
             type="button"
             onClick={handleOpenCreate}
-            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-indigo-600 text-white hover:bg-indigo-500 transition-colors shadow-xs"
+            className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-bold bg-indigo-600 text-white hover:bg-indigo-500 transition-colors shadow-xs"
           >
             <Plus className="w-4 h-4" />
-            <span>Create First Group</span>
+            <span>+ CREATE CUSTOM GROUP</span>
           </button>
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-3.5">
-          {groups.map(group => {
+          {displayedGroups.map(group => {
             const destIds = group.destinationIds || [];
             // Map destination ids to destinations
             const groupDestinations = destIds
@@ -183,31 +228,34 @@ export const GroupsManager: React.FC<GroupsManagerProps> = ({
                     )}
                   </div>
 
-                  {/* Actions Dropdown / Row */}
-                  <div className="flex items-center gap-1 shrink-0">
+                  {/* Actions Row: Edit, Duplicate, Delete */}
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => handleOpenEdit(group)}
+                      title="Edit Group & Select Social Accounts"
+                      className="px-2.5 py-1.5 text-xs font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800/60 hover:bg-indigo-100 rounded-xl flex items-center gap-1 transition-colors"
+                    >
+                      <Edit3 className="w-3.5 h-3.5" />
+                      <span>Edit</span>
+                    </button>
                     <button
                       type="button"
                       onClick={() => handleDuplicate(group.id, group.name)}
                       title="Duplicate Group"
-                      className="p-2 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 rounded-xl hover:bg-indigo-50 dark:hover:bg-indigo-950/40 transition-colors"
+                      className="px-2.5 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl flex items-center gap-1 transition-colors"
                     >
-                      <Copy className="w-4 h-4" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleOpenEdit(group)}
-                      title="Edit Group"
-                      className="p-2 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                    >
-                      <Edit3 className="w-4 h-4" />
+                      <Copy className="w-3.5 h-3.5" />
+                      <span>Duplicate</span>
                     </button>
                     <button
                       type="button"
                       onClick={() => setConfirmDeleteId(isConfirmingDelete ? null : group.id)}
                       title="Delete Group"
-                      className="p-2 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 rounded-xl hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors"
+                      className="px-2.5 py-1.5 text-xs font-semibold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/30 border border-rose-200/60 dark:border-rose-900/40 hover:bg-rose-100 rounded-xl flex items-center gap-1 transition-colors"
                     >
-                      <Trash2 className="w-4 h-4" />
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Delete</span>
                     </button>
                   </div>
                 </div>
@@ -239,8 +287,17 @@ export const GroupsManager: React.FC<GroupsManagerProps> = ({
 
                 {/* Destinations Details in this Group */}
                 <div className="space-y-2 pt-1 border-t border-slate-100 dark:border-slate-800/60">
-                  <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                    Included Destinations:
+                  <div className="flex items-center justify-between">
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                      Included Social Accounts ({destIds.length}):
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleOpenEdit(group)}
+                      className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 hover:underline"
+                    >
+                      Select Social Accounts
+                    </button>
                   </div>
 
                   {destIds.length === 0 ? (
