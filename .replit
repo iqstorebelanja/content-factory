@@ -1,0 +1,5 @@
+run = "node dist/server.cjs"
+
+[deployment]
+run = ["node", "dist/server.cjs"]
+deploymentTarget = "cloudrun"
